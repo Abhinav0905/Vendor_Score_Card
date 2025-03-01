@@ -1,0 +1,89 @@
+node_modules
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Build directories
+dist
+build
+dist-ssr
+.output
+
+# Environment files
+.env
+.env.local
+.env.*.local
+.env.development
+.env.test
+.env.production
+
+# IDE files
+.idea
+.vscode
+*.sublime-workspace
+*.sublime-project
+
+# Coverage directory
+coverage/   
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+
+# Python specific
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.so
+.Python
+env/
+develop-eggs/
+downloads/
+eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+.installed.cfg
+*.egg
+
+# Node specific
+.npm
+.node_repl_history
+.yarn-integrity
+.next
+.nuxt
+.cache
+
+# Test coverage
+.nyc_output
+coverage
+.coverage
+.pytest_cache/
+
+# Miscellaneous
+*.swp
+*.swo
+*.bak
+*.orig
+*.class
+*.jar
+*.war
+*.ear
+*.iml
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
