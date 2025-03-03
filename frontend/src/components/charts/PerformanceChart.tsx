@@ -24,3 +24,5 @@ export const PerformanceChart: React.FC<PerformanceChartProps> = ({ data }) => {
     </div>
   );
 };
+
+export default PerformanceChart;

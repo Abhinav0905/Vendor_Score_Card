@@ -1,0 +1,1 @@
+# EPCIS package initialization
