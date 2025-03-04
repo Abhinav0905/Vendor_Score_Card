@@ -1,0 +1,159 @@
+<n0:EPCISDocument xmlns:n0="urn:epcglobal:epcis:xsd:1" schemaVersion="1.2" creationDate="2025-02-20T20:06:42.562951Z">
+  <EPCISHeader>
+    <n1:StandardBusinessDocumentHeader xmlns:n1="http://www.unece.org/cefact/namespaces/StandardBusinessDocumentHeader">
+      <n1:HeaderVersion>1.0</n1:HeaderVersion>
+      <n1:Sender>
+        <n1:Identifier Authority="SGLN">urn:epc:id:sgln:0010939.00000.0</n1:Identifier>
+      </n1:Sender>
+      <n1:Receiver>
+        <n1:Identifier Authority="SGLN">urn:epc:id:sgln:0327808.00000.0</n1:Identifier>
+      </n1:Receiver>
+      <n1:DocumentIdentification>
+        <n1:Standard>EPCglobal</n1:Standard>
+        <n1:TypeVersion>1.0</n1:TypeVersion>
+        <n1:InstanceIdentifier>2D6C570053A61EDFBBF8C67B185AA6AD</n1:InstanceIdentifier>
+        <n1:Type>Events</n1:Type>
+        <n1:CreationDateAndTime>2025-02-20T20:06:42.562951Z</n1:CreationDateAndTime>
+      </n1:DocumentIdentification>
+    </n1:StandardBusinessDocumentHeader>
+    <extension>
+      <EPCISMasterData>
+        <VocabularyList>
+          <Vocabulary type="urn:epcglobal:epcis:vtype:EPCClass">
+            <VocabularyElementList>
+              <VocabularyElement id="urn:epc:idpat:sgtin:0327808.023302.*">
+                <attribute id="urn:epcglobal:cbv:mda#additionalTradeItemIdentificationTypeCode">FDA_NDC_11</attribute>
+                <attribute id="urn:epcglobal:cbv:mda#additionalTradeItemIdentification">27808023302</attribute>
+                <attribute id="urn:epcglobal:cbv:mda#manufacturerOfTradeItemPartyName">TRIS PHARMA INC</attribute>
+                <attribute id="urn:epcglobal:cbv:mda#regulatedProductName">doxycycline hyclate</attribute>
+                <attribute id="urn:epcglobal:cbv:mda#dosageFormType">CAPSULE</attribute>
+                <attribute id="urn:epcglobal:cbv:mda#strengthDescription">100 MG</attribute>
+                <attribute id="urn:epcglobal:cbv:mda#netContentDescription">500</attribute>
+              </VocabularyElement>
+              <VocabularyElement id="urn:epc:idpat:sgtin:0327808.026601.*">
+                <attribute id="urn:epcglobal:cbv:mda#additionalTradeItemIdentificationTypeCode">FDA_NDC_11</attribute>
+                <attribute id="urn:epcglobal:cbv:mda#additionalTradeItemIdentification">27808026601</attribute>
+                <attribute id="urn:epcglobal:cbv:mda#manufacturerOfTradeItemPartyName">TRIS PHARMA INC</attribute>
+                <attribute id="urn:epcglobal:cbv:mda#regulatedProductName">LEVETIRACETAM</attribute>
+                <attribute id="urn:epcglobal:cbv:mda#dosageFormType">TABLET</attribute>
+                <attribute id="urn:epcglobal:cbv:mda#strengthDescription">1000 MG</attribute>
+                <attribute id="urn:epcglobal:cbv:mda#netContentDescription">60</attribute>
+              </VocabularyElement>
+              <VocabularyElement id="urn:epc:idpat:sgtin:0327808.523302.*">
+                <attribute id="urn:epcglobal:cbv:mda#additionalTradeItemIdentificationTypeCode">FDA_NDC_11</attribute>
+                <attribute id="urn:epcglobal:cbv:mda#additionalTradeItemIdentification">27808023302</attribute>
+                <attribute id="urn:epcglobal:cbv:mda#manufacturerOfTradeItemPartyName">TRIS PHARMA INC</attribute>
+                <attribute id="urn:epcglobal:cbv:mda#regulatedProductName">doxycycline hyclate</attribute>
+                <attribute id="urn:epcglobal:cbv:mda#dosageFormType">CAPSULE</attribute>
+                <attribute id="urn:epcglobal:cbv:mda#strengthDescription">100 MG</attribute>
+                <attribute id="urn:epcglobal:cbv:mda#netContentDescription">500</attribute>
+              </VocabularyElement>
+              <VocabularyElement id="urn:epc:idpat:sgtin:0327808.526601.*">
+                <attribute id="urn:epcglobal:cbv:mda#additionalTradeItemIdentificationTypeCode">FDA_NDC_11</attribute>
+                <attribute id="urn:epcglobal:cbv:mda#additionalTradeItemIdentification">27808026601</attribute>
+                <attribute id="urn:epcglobal:cbv:mda#manufacturerOfTradeItemPartyName">TRIS PHARMA INC</attribute>
+                <attribute id="urn:epcglobal:cbv:mda#regulatedProductName">LEVETIRACETAM</attribute>
+                <attribute id="urn:epcglobal:cbv:mda#dosageFormType">TABLET</attribute>
+                <attribute id="urn:epcglobal:cbv:mda#strengthDescription">1000 MG</attribute>
+                <attribute id="urn:epcglobal:cbv:mda#netContentDescription">60</attribute>
+              </VocabularyElement>
+            </VocabularyElementList>
+          </Vocabulary>
+          <Vocabulary type="urn:epcglobal:epcis:vtype:Location">
+            <VocabularyElementList>
+              <VocabularyElement id="urn:epc:id:sgln:0327808.00000.0">
+                <attribute id="urn:epcglobal:cbv:mda#name">TRIS GENERIC</attribute>
+                <attribute id="urn:epcglobal:cbv:mda#streetAddressOne"> 2033 ROUTE 130</attribute>
+                <attribute id="urn:epcglobal:cbv:mda#city">MONMOUTH JUNCTION</attribute>
+                <attribute id="urn:epcglobal:cbv:mda#state">NJ</attribute>
+                <attribute id="urn:epcglobal:cbv:mda#postalCode">08852</attribute>
+                <attribute id="urn:epcglobal:cbv:mda#countryCode">US</attribute>
+              </VocabularyElement>
+              <VocabularyElement id="urn:epc:id:sgln:08656240003.8.0">
+                <attribute id="urn:epcglobal:cbv:mda#name">RxCrossroads - Mason OH RR0577241</attribute>
+                <attribute id="urn:epcglobal:cbv:mda#streetAddressOne">Suite 200 4200 BINION WAY</attribute>
+                <attribute id="urn:epcglobal:cbv:mda#city">MASON</attribute>
+                <attribute id="urn:epcglobal:cbv:mda#state">OH</attribute>
+                <attribute id="urn:epcglobal:cbv:mda#postalCode">45036</attribute>
+                <attribute id="urn:epcglobal:cbv:mda#countryCode">US</attribute>
+              </VocabularyElement>
+              <VocabularyElement id="urn:epc:id:sgln:08600500019.0.0">
+                <attribute id="urn:epcglobal:cbv:mda#name">HOMETOWN PHARMACY PARTNERSHIPS</attribute>
+                <attribute id="urn:epcglobal:cbv:mda#streetAddressOne"> 300 LINCOLN AVE</attribute>
+                <attribute id="urn:epcglobal:cbv:mda#city">RIO</attribute>
+                <attribute id="urn:epcglobal:cbv:mda#state">WI</attribute>
+                <attribute id="urn:epcglobal:cbv:mda#postalCode">53960</attribute>
+                <attribute id="urn:epcglobal:cbv:mda#countryCode">US</attribute>
+              </VocabularyElement>
+            </VocabularyElementList>
+          </Vocabulary>
+        </VocabularyList>
+      </EPCISMasterData>
+    </extension>
+  </EPCISHeader>
+  <EPCISBody>
+    <EventList>
+      <ObjectEvent>
+        <eventTime>2025-02-20T19:09:33Z</eventTime>
+        <eventTimeZoneOffset>-08:00</eventTimeZoneOffset>
+        <epcList>
+          <epc>urn:epc:id:sscc:08433681.002701793</epc>
+        </epcList>
+        <action>ADD</action>
+        <bizStep>urn:epcglobal:cbv:bizstep:commissioning</bizStep>
+        <disposition>urn:epcglobal:cbv:disp:active</disposition>
+        <readPoint>
+          <id>urn:epc:id:sgln:08656240003.8.0</id>
+        </readPoint>
+        <bizLocation>
+          <id>urn:epc:id:sgln:08656240003.8.0</id>
+        </bizLocation>
+      </ObjectEvent>
+      <AggregationEvent>
+        <eventTime>2025-02-20T19:09:44Z</eventTime>
+        <eventTimeZoneOffset>-08:00</eventTimeZoneOffset>
+        <parentID>urn:epc:id:sscc:08433681.002701793</parentID>
+        <childEPCs>
+          <epc>urn:epc:id:sgtin:0327808.523302.000000039335</epc>
+          <epc>urn:epc:id:sgtin:0327808.526601.447933789792</epc>
+        </childEPCs>
+        <action>ADD</action>
+        <bizStep>urn:epcglobal:cbv:bizstep:packing</bizStep>
+        <disposition>urn:epcglobal:cbv:disp:in_progress</disposition>
+        <readPoint>
+          <id>urn:epc:id:sgln:08656240003.8.0</id>
+        </readPoint>
+        <bizLocation>
+          <id>urn:epc:id:sgln:08656240003.8.0</id>
+        </bizLocation>
+      </AggregationEvent>
+      <ObjectEvent>
+        <eventTime>2025-02-20T20:06:39Z</eventTime>
+        <eventTimeZoneOffset>-08:00</eventTimeZoneOffset>
+        <epcList>
+          <epc>urn:epc:id:sscc:08433681.002701793</epc>
+        </epcList>
+        <action>OBSERVE</action>
+        <bizStep>urn:epcglobal:cbv:bizstep:shipping</bizStep>
+        <disposition>urn:epcglobal:cbv:disp:in_transit</disposition>
+        <readPoint>
+          <id>urn:epc:id:sgln:08656240003.8.0</id>
+        </readPoint>
+        <bizTransactionList>
+          <bizTransaction type="urn:epcglobal:cbv:btt:desadv">urn:epcglobal:cbv:bt:0865624000382:230714355</bizTransaction>
+          <bizTransaction type="urn:epcglobal:cbv:btt:po">urn:epcglobal:cbv:bt:0860050001903:01147484</bizTransaction>
+        </bizTransactionList>
+        <extension>
+          <sourceList>
+            <source type="urn:epcglobal:cbv:sdt:owning_party">urn:epc:id:sgln:0327808.00000.0</source>
+            <source type="urn:epcglobal:cbv:sdt:location">urn:epc:id:sgln:08656240003.8.0</source>
+          </sourceList>
+          <destinationList>
+            <destination type="urn:epcglobal:cbv:sdt:owning_party">urn:epc:id:sgln:08600500019.0.0</destination>
+            <destination type="urn:epcglobal:cbv:sdt:location">urn:epc:id:sgln:08600500019.0.0</destination>
+          </destinationList>
+        </extension>
+      </ObjectEvent>
+    </EventList>
+  </EPCISBody>
+</n0:EPCISDocument>

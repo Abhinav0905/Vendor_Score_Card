@@ -40,30 +40,50 @@ class LocalStorageHandler(StorageHandler):
     
     def __init__(self, config: Dict[str, Any]):
         self.base_path = config.get('base_path', 'storage/epcis')
+        self.base_path = os.path.abspath(self.base_path)
+        logger.info(f"Initializing local storage handler with base path: {self.base_path}")
         os.makedirs(self.base_path, exist_ok=True)
     
     def store_file(self, file_content: bytes, file_name: str, supplier_id: str) -> str:
         """Store a file in the local filesystem"""
-        # Create supplier directory
-        supplier_dir = os.path.join(self.base_path, supplier_id)
-        os.makedirs(supplier_dir, exist_ok=True)
-        
-        # Store file
-        file_path = os.path.join(supplier_dir, file_name)
-        with open(file_path, 'wb') as f:
-            f.write(file_content)
-        
-        return file_path
+        try:
+            # Create supplier directory
+            supplier_dir = os.path.join(self.base_path, supplier_id)
+            os.makedirs(supplier_dir, exist_ok=True)
+            logger.info(f"Storing file in directory: {supplier_dir}")
+            
+            # Store file
+            file_path = os.path.join(supplier_dir, file_name)
+            with open(file_path, 'wb') as f:
+                f.write(file_content)
+            
+            logger.info(f"File successfully stored at: {file_path}")
+            return file_path
+        except Exception as e:
+            logger.error(f"Error storing file locally: {str(e)}")
+            raise
     
     def retrieve_file(self, file_location: str) -> bytes:
         """Retrieve a file from the local filesystem"""
-        with open(file_location, 'rb') as f:
-            return f.read()
+        try:
+            logger.info(f"Retrieving file from: {file_location}")
+            if not os.path.exists(file_location):
+                logger.error(f"File not found: {file_location}")
+                raise FileNotFoundError(f"File not found: {file_location}")
+                
+            with open(file_location, 'rb') as f:
+                content = f.read()
+            return content
+        except Exception as e:
+            logger.error(f"Error retrieving file: {str(e)}")
+            raise
     
     def generate_presigned_url(self, file_location: str, expiration: int = 3600) -> str:
         """For local files, just return the absolute path"""
         # For local storage, we can't generate a pre-signed URL
         # Just return the absolute path
+        if not os.path.exists(file_location):
+            logger.warning(f"File not found when generating URL: {file_location}")
         return os.path.abspath(file_location)
 
 class S3StorageHandler(StorageHandler):

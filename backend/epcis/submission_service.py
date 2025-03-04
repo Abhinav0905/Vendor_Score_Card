@@ -2,6 +2,7 @@ import os
 import uuid
 import logging
 import hashlib
+import traceback
 from datetime import datetime
 from typing import Dict, Any, Optional
 from models.epcis_submission import EPCISSubmission, ValidationError, FileStatus
@@ -45,9 +46,12 @@ class SubmissionService:
     ) -> Dict[str, Any]:
         """Process an EPCIS file submission"""
         db = SessionLocal()
+        submission_id = str(uuid.uuid4())
+        
         try:
+            logger.info(f"Processing new submission: {file_name} for supplier: {supplier_id}")
+            
             # Generate a unique submission ID
-            submission_id = str(uuid.uuid4())
             
             # Generate file hash for deduplication
             file_hash = hashlib.sha256(file_content).hexdigest()
@@ -59,6 +63,7 @@ class SubmissionService:
             ).first()
             
             if existing:
+                logger.info(f"Duplicate submission detected for file: {file_name}")
                 return {
                     "success": False,
                     "message": "Duplicate submission detected",
@@ -72,12 +77,23 @@ class SubmissionService:
             # Store the file with a unique name to prevent collisions
             storage_filename = f"{submission_id}{os.path.splitext(file_name)[1]}"
             
+            logger.info(f"Storing file: {storage_filename} for submission: {submission_id}")
+            
             # Store the file using the appropriate storage handler
-            file_location = self.storage.store_file(
-                file_content=file_content,
-                file_name=storage_filename, 
-                supplier_id=supplier_id
-            )
+            try:
+                file_location = self.storage.store_file(
+                    file_content=file_content,
+                    file_name=storage_filename, 
+                    supplier_id=supplier_id
+                )
+                logger.info(f"File stored successfully at: {file_location}")
+            except Exception as storage_error:
+                logger.error(f"Failed to store file: {str(storage_error)}")
+                return {
+                    "success": False,
+                    "message": f"Failed to store file: {str(storage_error)}",
+                    "error": str(storage_error)
+                }
             
             # Create submission record
             submission = EPCISSubmission(
@@ -93,11 +109,35 @@ class SubmissionService:
             )
             
             # Save submission to database
-            db.add(submission)
-            db.commit()
+            try:
+                db.add(submission)
+                db.commit()
+                logger.info(f"Submission record created: {submission_id}")
+            except Exception as db_error:
+                logger.error(f"Database error when creating submission: {str(db_error)}")
+                db.rollback()
+                return {
+                    "success": False,
+                    "message": f"Database error: {str(db_error)}",
+                    "error": str(db_error)
+                }
             
             # Validate the file
-            validation_result = self.validator.validate(file_content, is_xml=is_xml)
+            try:
+                logger.info(f"Validating file for submission: {submission_id}")
+                validation_result = self.validator.validate(file_content, is_xml=is_xml)
+                logger.info(f"Validation complete for submission: {submission_id}")
+            except Exception as validation_error:
+                logger.error(f"Validation error: {str(validation_error)}")
+                submission.status = FileStatus.FAILED.value
+                submission.completion_date = datetime.utcnow()
+                db.commit()
+                return {
+                    "success": False,
+                    "message": f"Validation error: {str(validation_error)}",
+                    "submission_id": submission_id,
+                    "status": FileStatus.FAILED.value
+                }
             
             # Process validation results
             is_valid = validation_result.get('valid', False)
@@ -124,18 +164,31 @@ class SubmissionService:
             submission.has_sequence_errors = has_sequence_errors
             
             # Save validation errors to database
-            for error in errors:
-                error_record = ValidationError(
-                    id=str(uuid.uuid4()),
-                    submission_id=submission_id,
-                    error_type=error.get('type', 'unknown'),
-                    severity=error.get('severity', 'error'),
-                    message=error.get('message', 'Unknown error'),
-                    created_at=datetime.utcnow()
-                )
-                db.add(error_record)
-            
-            db.commit()
+            try:
+                for error in errors:
+                    error_record = ValidationError(
+                        id=str(uuid.uuid4()),
+                        submission_id=submission_id,
+                        error_type=error.get('type', 'unknown'),
+                        severity=error.get('severity', 'error'),
+                        message=error.get('message', 'Unknown error'),
+                        created_at=datetime.utcnow()
+                    )
+                    db.add(error_record)
+                
+                db.commit()
+                logger.info(f"Validation records saved for submission: {submission_id}")
+            except Exception as error_save_error:
+                logger.error(f"Error saving validation results: {str(error_save_error)}")
+                db.rollback()
+                submission.status = FileStatus.FAILED.value
+                db.commit()
+                return {
+                    "success": False,
+                    "message": f"Error saving validation results: {str(error_save_error)}",
+                    "submission_id": submission_id,
+                    "status": FileStatus.FAILED.value
+                }
             
             return {
                 'success': is_valid,
@@ -151,17 +204,25 @@ class SubmissionService:
             }
                 
         except Exception as e:
-            logger.exception(f"Error processing submission: {e}")
-            if 'submission' in locals():
-                submission.status = FileStatus.FAILED.value
-                db.commit()
+            logger.exception(f"Uncaught exception in process_submission: {e}")
+            error_traceback = traceback.format_exc()
+            logger.error(f"Traceback: {error_traceback}")
+            
+            try:
+                if 'submission' in locals() and submission.id:
+                    submission.status = FileStatus.FAILED.value
+                    db.commit()
+            except Exception:
+                pass
+                
             return {
                 'success': False,
-                'message': f"Error processing submission: {str(e)}"
+                'message': f"Error processing submission: {str(e)}",
+                'error': str(e)
             }
         finally:
             db.close()
-
+    
     def get_submission(self, submission_id: str) -> Dict[str, Any]:
         """Get submission details by ID"""
         db = SessionLocal()

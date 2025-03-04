@@ -21,13 +21,13 @@ logger = logging.getLogger(__name__)
 # Initialize FastAPI app
 app = FastAPI(title="Vendor Scorecard API")
 
-# Configure CORS
+# Configure CORS to allow requests from the frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],  # React dev server
+    allow_origins=["*"],  # Allow all origins for development
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["*"],  # Allow all HTTP methods
+    allow_headers=["*"],  # Allow all headers
 )
 
 # Create database tables
@@ -38,11 +38,21 @@ submission_service = SubmissionService()
 
 # Configure file watcher
 WATCH_DIR = os.path.join(os.path.dirname(__file__), "epcis_drop")
+# Ensure watch directory exists
+os.makedirs(WATCH_DIR, exist_ok=True)
+
 supplier_mapping = {
     "supplier_a": "supplier_1",
     "supplier_b": "supplier_2",
     "supplier_c": "supplier_3"
 }
+
+# Ensure supplier directories exist
+for supplier_dir in supplier_mapping.keys():
+    supplier_path = os.path.join(WATCH_DIR, supplier_dir)
+    archive_path = os.path.join(supplier_path, "archived")
+    os.makedirs(supplier_path, exist_ok=True)
+    os.makedirs(archive_path, exist_ok=True)
 
 file_watcher = EPCISFileWatcher(
     submission_service=submission_service,
@@ -70,6 +80,11 @@ async def shutdown_event():
     file_watcher.stop()
     logger.info("EPCIS file watcher stopped")
 
+@app.get("/health")
+async def health_check():
+    """Health check endpoint to verify API is running"""
+    return {"status": "OK"}
+
 @app.post("/epcis/upload")
 async def upload_epcis_file(
     file: UploadFile = File(...),
@@ -77,15 +92,51 @@ async def upload_epcis_file(
 ) -> Dict[str, Any]:
     """Upload and process an EPCIS file"""
     try:
-        content = await file.read()
+        # Log upload attempt
+        logger.info(f"Receiving EPCIS file upload: {file.filename} for supplier: {supplier_id}")
+        
+        # Check file size limit (10MB)
+        file_size_limit = 10 * 1024 * 1024  # 10 MB
+        file_content = await file.read()
+        if len(file_content) > file_size_limit:
+            raise HTTPException(
+                status_code=413,  # Request Entity Too Large
+                detail="File size exceeds the 10MB limit"
+            )
+        
+        # Check file extension
+        allowed_extensions = ['.xml', '.json']
+        file_ext = os.path.splitext(file.filename)[1].lower()
+        if file_ext not in allowed_extensions:
+            raise HTTPException(
+                status_code=415,  # Unsupported Media Type
+                detail=f"Unsupported file type. Allowed types: {', '.join(allowed_extensions)}"
+            )
+        
+        # Verify supplier ID exists in our mapping
+        valid_suppliers = list(supplier_mapping.keys()) + list(supplier_mapping.values())
+        if supplier_id not in valid_suppliers:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid supplier ID. Valid IDs: {', '.join(valid_suppliers)}"
+            )
+        
+        # Process the submission
         result = await submission_service.process_submission(
-            file_content=content,
+            file_content=file_content,
             file_name=file.filename,
             supplier_id=supplier_id
         )
+        
+        if not result.get('success', False):
+            logger.warning(f"Submission processing warning: {result.get('message')}")
+            
         return result
+    except HTTPException:
+        # Re-raise HTTP exceptions without modification
+        raise
     except Exception as e:
-        logger.error(f"Error processing EPCIS file: {str(e)}")
+        logger.exception(f"Unexpected error processing EPCIS file: {str(e)}")
         raise HTTPException(
             status_code=500,
             detail=f"Error processing file: {str(e)}"
@@ -102,15 +153,22 @@ async def get_watch_dir_info() -> Dict[str, Any]:
                 archive_path = os.path.join(dir_path, "archived")
                 has_archived = os.path.exists(archive_path) and len(os.listdir(archive_path)) > 0
                 
+                # Count files in supplier directory (excluding archived folder)
+                file_count = sum(1 for item in os.listdir(dir_path) 
+                                if os.path.isfile(os.path.join(dir_path, item)))
+                
                 supplier_directories.append({
                     "name": supplier_dir,
                     "path": dir_path,
-                    "has_archived": has_archived
+                    "has_archived": has_archived,
+                    "file_count": file_count,
+                    "mapped_id": supplier_mapping.get(supplier_dir)
                 })
         
         return {
             "watch_dir": WATCH_DIR,
-            "supplier_directories": supplier_directories
+            "supplier_directories": supplier_directories,
+            "supplier_mapping": supplier_mapping
         }
     except Exception as e:
         logger.error(f"Error getting watch directory info: {str(e)}")
@@ -135,17 +193,68 @@ async def get_submissions(
             query = query.filter(EPCISSubmission.status == status)
             
         submissions = query.order_by(EPCISSubmission.submission_date.desc()).all()
-        return {"submissions": submissions}
+        
+        # Convert to list of dicts for JSON response
+        result = []
+        for sub in submissions:
+            result.append({
+                "id": sub.id,
+                "supplier_id": sub.supplier_id,
+                "file_name": sub.file_name,
+                "file_path": sub.file_path,
+                "file_size": sub.file_size,
+                "status": sub.status,
+                "is_valid": sub.is_valid,
+                "error_count": sub.error_count,
+                "warning_count": sub.warning_count,
+                "submission_date": sub.submission_date.isoformat() if sub.submission_date else None,
+                "processing_date": sub.processing_date.isoformat() if sub.processing_date else None,
+                "completion_date": sub.completion_date.isoformat() if sub.completion_date else None
+            })
+        
+        return {"submissions": result}
     except Exception as e:
         logger.error(f"Error getting submissions: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/suppliers")
+async def get_suppliers() -> Dict[str, Any]:
+    """Get a list of all suppliers"""
+    try:
+        return {
+            "suppliers": [
+                {"id": supplier_id, "name": f"Supplier {supplier_id}"} 
+                for supplier_id in supplier_mapping.values()
+            ]
+        }
+    except Exception as e:
+        logger.error(f"Error getting suppliers: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/epcis/refresh-suppliers")
 async def refresh_supplier_mapping(background_tasks: BackgroundTasks):
     """Refresh the supplier directory mapping"""
     try:
-        # Implement supplier refresh logic here
-        return {"message": "Supplier mapping refresh scheduled"}
+        # Check for new directories in the watch directory
+        current_suppliers = set(supplier_mapping.keys())
+        
+        for item in os.listdir(WATCH_DIR):
+            item_path = os.path.join(WATCH_DIR, item)
+            
+            if os.path.isdir(item_path) and item not in current_suppliers:
+                # Create archived directory if it doesn't exist
+                archived_path = os.path.join(item_path, "archived")
+                os.makedirs(archived_path, exist_ok=True)
+                
+                # Add to supplier mapping with a new ID
+                new_id = f"supplier_{len(supplier_mapping) + 1}"
+                supplier_mapping[item] = new_id
+                logger.info(f"Added new supplier: {item} with ID: {new_id}")
+        
+        return {
+            "message": "Supplier mapping refreshed",
+            "suppliers": supplier_mapping
+        }
     except Exception as e:
         logger.error(f"Error refreshing supplier mapping: {e}")
         raise HTTPException(status_code=500, detail=str(e))
