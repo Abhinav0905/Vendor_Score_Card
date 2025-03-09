@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<ttt:itemsShipEvent xmlns:eee="http://xmlns.rfxcel.com/events/1.4.2" xmlns:ttt="http://xmlns.rfxcel.com/traceabilityEvents/1.4.2" xmlns:dis="http://xmlns.rfxcel.com/1.4.2">
+    <eee:eventTpId qlfr="EXTERNAL_DEF">urn:epc:id:sgln:0327808.00000.0</eee:eventTpId>
+    <eee:sysEventId>14764005653548544</eee:sysEventId>
+    <eee:eventId></eee:eventId>
+    <eee:sysParentEventId>14764005653548544</eee:sysParentEventId>
+    <eee:parentEventId>14764005653548544</eee:parentEventId>
+    <eee:sysCorrEventId>14764005653548544</eee:sysCorrEventId>
+    <eee:corrEventId>14764005653548544</eee:corrEventId>
+    <eee:eventDateTime>2025-02-08T10:00:47Z</eee:eventDateTime>
+    <eee:recordDateTime>2025-02-08T10:00:47Z</eee:recordDateTime>
+    <eee:eventTimeZoneOffset>+00:00</eee:eventTimeZoneOffset>
+    <eee:eventLocId qlfr="EXTERNAL_DEF">urn:epc:id:sgln:0327808.00000.0</eee:eventLocId>
+    <eee:bizLocId qlfr="EXTERNAL_DEF">urn:epc:id:sgln:0327808.00000.0</eee:bizLocId>
+    <eee:eventCause>Ship</eee:eventCause>
+    <eee:eventUsage>Shipment</eee:eventUsage>
+    <eee:note></eee:note>
+    <ttt:physicalDeviceId qlfr="DEVICE_ID"></ttt:physicalDeviceId>
+    <ttt:logicalDeviceId qlfr="EXTERNAL_DEF"></ttt:logicalDeviceId>
+    <ttt:bizTxnInfoList>
+        <eee:bizTxnInfo bizTxnType="Purchase Order Number">
+            <eee:bizTxnId>56343</eee:bizTxnId>
+            <eee:bizTxnDate>2025-02-08</eee:bizTxnDate>
+            <eee:bizTxnTypeExtId>urn:epcglobal:cbv:btt:po</eee:bizTxnTypeExtId>
+            <eee:extAttrList>
+                <dis:str n="DIRECT_SHIPMENT">0</dis:str>
+            </eee:extAttrList>
+        </eee:bizTxnInfo>
+        <eee:bizTxnInfo bizTxnType="Dispatch Advice Number">
+            <eee:bizTxnId>56343</eee:bizTxnId>
+            <eee:bizTxnDate>2025-02-08</eee:bizTxnDate>
+            <eee:bizTxnTypeExtId>urn:epcglobal:cbv:btt:desadv</eee:bizTxnTypeExtId>
+            <eee:extAttrList>
+                <dis:str n="DIRECT_SHIPMENT">0</dis:str>
+            </eee:extAttrList>
+        </eee:bizTxnInfo>
+    </ttt:bizTxnInfoList>
+    <ttt:itemDisposition>Shipped</ttt:itemDisposition>
+    <ttt:extAttrList>
+        <dis:str n="SENDER_SYSTEM">rts-ui</dis:str>
+        <dis:str n="USER_ID">adieng</dis:str>
+        <dis:str n="CUSTOM_EVENT_ATTR1"></dis:str>
+        <dis:str n="READPOINT">urn:epc:id:sgln:0327808.00000.0</dis:str>
+        <dis:str n="UDA_VALUE">{}</dis:str>
+        <dis:str n="SPLIT_LAST">YES</dis:str>
+    </ttt:extAttrList>
+    <ttt:traceableEntityList>
+        <eee:itemAggr>
+            <eee:itemType>Case</eee:itemType>
+            <eee:itemTypeId qlfr="">50324478322040</eee:itemTypeId>
+            <eee:lotId>56343</eee:lotId>
+            <eee:expDate>2026-01-31</eee:expDate>
+            <eee:qty>1.0</eee:qty>
+            <eee:itemInfo>
+                <eee:itemId qlfr="SGTIN">urn:epc:id:sgtin:0324478.532204.P14388065002</eee:itemId>
+            </eee:itemInfo>
+            <eee:itemInfo>
+                <eee:itemId qlfr="SGTIN">urn:epc:id:sgtin:0324478.532204.P14387747856</eee:itemId>
+            </eee:itemInfo>
+            <eee:itemInfo>
+                <eee:itemId qlfr="SGTIN">urn:epc:id:sgtin:0324478.532204.P14388482614</eee:itemId>
+            </eee:itemInfo>
+            <eee:itemInfo>
+                <eee:itemId qlfr="SGTIN">urn:epc:id:sgtin:0324478.532204.P14387840088</eee:itemId>
+            </eee:itemInfo>
+            <eee:itemInfo>
+                <eee:itemId qlfr="SGTIN">urn:epc:id:sgtin:0324478.532204.P14387900834</eee:itemId>
+            </eee:itemInfo>
+        </eee:itemAggr>
+    </ttt:traceableEntityList>
+    <ttt:senderInfo>
+        <eee:tpId qlfr="EXTERNAL_DEF">urn:epc:id:sgln:0327808.00000.0</eee:tpId>
+        <eee:businessAddress>
+            <dis:name>TRIS PHARMA INC</dis:name>
+            <dis:addressLine1>2033 US 130</dis:addressLine1>
+            <dis:city>Monmouth Junction</dis:city>
+            <dis:stateOrRegion>NJ</dis:stateOrRegion>
+            <dis:postalCode>08852</dis:postalCode>
+            <dis:country></dis:country>
+        </eee:businessAddress>
+        <eee:itemsLocId qlfr="GLN">urn:epc:id:sgln:0327808.00000.0</eee:itemsLocId>
+        <eee:shippingAddress>
+            <dis:name>TRIS PHARMA INC</dis:name>
+            <dis:addressLine1>2033 US 130</dis:addressLine1>
+            <dis:city>Monmouth Junction</dis:city>
+            <dis:stateOrRegion>NJ</dis:stateOrRegion>
+            <dis:postalCode>08852</dis:postalCode>
+            <dis:country></dis:country>
+        </eee:shippingAddress>
+        <eee:bizLocId qlfr="EXTERNAL_DEF">urn:epc:id:sgln:0327808.00000.0</eee:bizLocId>
+        <eee:contactUserId qlfr="EXTERNAL_DEF"></eee:contactUserId>
+    </ttt:senderInfo>
+    <ttt:receiverInfo>
+        <eee:tpId qlfr="EXTERNAL_DEF">urn:epc:id:sgln:0327808.00000.0</eee:tpId>
+        <eee:businessAddress>
+            <dis:name></dis:name>
+            <dis:addressLine1></dis:addressLine1>
+            <dis:addressLine2></dis:addressLine2>
+            <dis:city></dis:city>
+            <dis:stateOrRegion></dis:stateOrRegion>
+            <dis:postalCode></dis:postalCode>
+            <dis:country></dis:country>
+        </eee:businessAddress>
+        <eee:itemsLocId qlfr="GLN">urn:epc:id:sgln:0716163.02153.0</eee:itemsLocId>
+        <eee:shippingAddress>
+            <dis:name></dis:name>
+            <dis:addressLine1></dis:addressLine1>
+            <dis:addressLine2></dis:addressLine2>
+            <dis:city></dis:city>
+            <dis:stateOrRegion></dis:stateOrRegion>
+            <dis:postalCode></dis:postalCode>
+            <dis:country></dis:country>
+        </eee:shippingAddress>
+    </ttt:receiverInfo>
+    <ttt:changeItemsOwnership>false</ttt:changeItemsOwnership>
+</ttt:itemsShipEvent>
