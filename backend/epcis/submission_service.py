@@ -68,7 +68,8 @@ class SubmissionService:
                     "success": False,
                     "message": "Duplicate submission detected",
                     "submission_id": existing.id,
-                    "status": existing.status
+                    "status": existing.status,
+                    "status_code": 409  # Adding status code for duplicate submissions
                 }
             
             # Determine file type
@@ -92,7 +93,8 @@ class SubmissionService:
                 return {
                     "success": False,
                     "message": f"Failed to store file: {str(storage_error)}",
-                    "error": str(storage_error)
+                    "error": str(storage_error),
+                    "status_code": 500  # Adding status code for storage errors
                 }
             
             # Create submission record
@@ -119,7 +121,8 @@ class SubmissionService:
                 return {
                     "success": False,
                     "message": f"Database error: {str(db_error)}",
-                    "error": str(db_error)
+                    "error": str(db_error),
+                    "status_code": 500  # Adding status code for database errors
                 }
             
             # Validate the file
@@ -136,7 +139,8 @@ class SubmissionService:
                     "success": False,
                     "message": f"Validation error: {str(validation_error)}",
                     "submission_id": submission_id,
-                    "status": FileStatus.FAILED.value
+                    "status": FileStatus.FAILED.value,
+                    "status_code": 400  # Adding status code for validation errors
                 }
             
             # Process validation results
@@ -152,10 +156,7 @@ class SubmissionService:
             has_sequence_errors = any(e.get('type') == 'sequence' for e in errors)
             
             # Update submission status
-            submission.status = (
-                FileStatus.VALIDATED.value if is_valid 
-                else FileStatus.HELD.value
-            )
+            submission.status = FileStatus.VALIDATED.value if is_valid else FileStatus.HELD.value
             submission.is_valid = is_valid
             submission.error_count = error_count
             submission.warning_count = warning_count
@@ -187,10 +188,11 @@ class SubmissionService:
                     "success": False,
                     "message": f"Error saving validation results: {str(error_save_error)}",
                     "submission_id": submission_id,
-                    "status": FileStatus.FAILED.value
+                    "status": FileStatus.FAILED.value,
+                    "status_code": 500  # Adding status code for database errors
                 }
             
-            return {
+            response = {
                 'success': is_valid,
                 'message': (
                     'File successfully processed and validated' 
@@ -200,8 +202,14 @@ class SubmissionService:
                 'submission_id': submission_id,
                 'status': submission.status,
                 'error_count': error_count,
-                'warning_count': warning_count
+                'warning_count': warning_count,
+                'status_code': 200 if is_valid else 400  # Adding appropriate status code based on validation
             }
+
+            if not is_valid:
+                response['errors'] = errors  # Include validation errors in response
+            
+            return response
                 
         except Exception as e:
             logger.exception(f"Uncaught exception in process_submission: {e}")
@@ -218,7 +226,8 @@ class SubmissionService:
             return {
                 'success': False,
                 'message': f"Error processing submission: {str(e)}",
-                'error': str(e)
+                'error': str(e),
+                'status_code': 500  # Adding status code for uncaught exceptions
             }
         finally:
             db.close()

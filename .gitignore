@@ -57,6 +57,8 @@ sdist/
 var/
 .installed.cfg
 *.egg
+.venv
+vnev/
 
 # Node specific
 .npm

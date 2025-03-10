@@ -1493,8 +1493,8 @@ class EPCISValidator:
         
         return errors
 
-    def _validate_event_timing(self, events: List[Dict[str, Any]]) -> List[Dict[str, str]]:
-        # ...existing code...
+    # def _validate_event_timing(self, events: List[Dict[str, Any]]) -> List[Dict[str, str]]:
+    #     # ...existing code...
 
     def _validate_aggregation_relationships(self, events: List[Dict[str, Any]]) -> List[Dict[str, str]]:
         """Validate parent-child relationships and uniqueness in aggregation events"""

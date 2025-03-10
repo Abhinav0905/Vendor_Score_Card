@@ -7,6 +7,7 @@ import uuid
 from fastapi import FastAPI, HTTPException, BackgroundTasks, File, UploadFile, Form, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from models.base import SessionLocal, engine, Base
 from models.supplier import Supplier
 from models.epcis_submission import EPCISSubmission
@@ -24,10 +25,10 @@ app = FastAPI(title="Vendor Scorecard API")
 # Configure CORS to allow requests from the frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins for development
+    allow_origins=["http://localhost:5173"],  # Vite's default development server port
     allow_credentials=True,
-    allow_methods=["*"],  # Allow all HTTP methods
-    allow_headers=["*"],  # Allow all headers
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # Create database tables
@@ -257,6 +258,80 @@ async def refresh_supplier_mapping(background_tasks: BackgroundTasks):
         }
     except Exception as e:
         logger.error(f"Error refreshing supplier mapping: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/dashboard/stats")
+async def get_dashboard_stats(db: Session = Depends(get_db)) -> Dict[str, Any]:
+    """Get dashboard statistics including submission counts and supplier performance"""
+    try:
+        # Query total submissions
+        total_submissions = db.query(EPCISSubmission).count()
+        
+        # Query successful submissions (validated status)
+        successful_submissions = db.query(EPCISSubmission).filter(
+            EPCISSubmission.status == 'validated'
+        ).count()
+        
+        # Query failed submissions
+        failed_submissions = db.query(EPCISSubmission).filter(
+            EPCISSubmission.status == 'failed'
+        ).count()
+        
+        # Get submission counts by status
+        status_counts = {}
+        for status in ['validated', 'held', 'failed', 'reprocessed']:
+            count = db.query(EPCISSubmission).filter(
+                EPCISSubmission.status == status
+            ).count()
+            status_counts[status] = count
+        
+        # Get top suppliers by submission count using func.count()
+        top_suppliers = []
+        supplier_counts = (
+            db.query(
+                EPCISSubmission.supplier_id,
+                func.count(EPCISSubmission.id).label('submission_count')
+            )
+            .group_by(EPCISSubmission.supplier_id)
+            .order_by(func.count(EPCISSubmission.id).desc())
+            .limit(5)
+            .all()
+        )
+        
+        for supplier in supplier_counts:
+            top_suppliers.append({
+                'id': supplier.supplier_id,
+                'name': f'Supplier {supplier.supplier_id.split("_")[-1].upper()}',
+                'submission_count': supplier.submission_count
+            })
+        
+        # Get error type distribution
+        error_types = {
+            'structure': db.query(EPCISSubmission).filter(
+                EPCISSubmission.has_structure_errors == True
+            ).count(),
+            'field': db.query(EPCISSubmission).filter(
+                EPCISSubmission.error_count > 0
+            ).count(),
+            'sequence': db.query(EPCISSubmission).filter(
+                EPCISSubmission.has_sequence_errors == True
+            ).count(),
+            'aggregation': db.query(EPCISSubmission).filter(
+                EPCISSubmission.status == 'held'
+            ).count()
+        }
+        
+        return {
+            'total_submissions': total_submissions,
+            'successful_submissions': successful_submissions,
+            'failed_submissions': failed_submissions,
+            'submission_by_status': status_counts,
+            'top_suppliers': top_suppliers,
+            'error_type_distribution': error_types
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting dashboard stats: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":

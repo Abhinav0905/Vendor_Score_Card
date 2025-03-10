@@ -327,8 +327,31 @@ export const api = {
   
   // Dashboard stats
   getDashboardStats: async () => {
-    const response = await axios.get(`${API_URL}/dashboard/stats`);
-    return response.data;
+    try {
+      const response = await axios.get(`${API_URL}/dashboard/stats`);
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching dashboard stats:', error);
+      // Return empty data structure instead of mock data
+      return {
+        total_submissions: 0,
+        successful_submissions: 0,
+        failed_submissions: 0,
+        submission_by_status: {
+          validated: 0,
+          held: 0,
+          failed: 0,
+          reprocessed: 0
+        },
+        top_suppliers: [],
+        error_type_distribution: {
+          structure: 0,
+          field: 0,
+          sequence: 0,
+          aggregation: 0
+        }
+      };
+    }
   },
   
   // NLP Query

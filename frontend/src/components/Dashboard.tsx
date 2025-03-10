@@ -56,41 +56,43 @@ const Dashboard: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [nlpQueryResult, setNlpQueryResult] = useState<any>(null);
+  const [performanceData, setPerformanceData] = useState<any[]>([]);
 
   useEffect(() => {
     const fetchDashboardStats = async () => {
       try {
         setLoading(true);
-        // For now, use mock data instead of API call since backend might not be fully set up
-        // const data = await api.getDashboardStats();
-        const mockData: DashboardStats = {
-          total_submissions: 125,
-          successful_submissions: 98,
-          failed_submissions: 27,
-          submission_by_status: {
-            validated: 98,
-            held: 15,
-            failed: 7,
-            reprocessed: 5
-          },
-          top_suppliers: [
-            { id: '1', name: 'Supplier A', submission_count: 42 },
-            { id: '2', name: 'Supplier B', submission_count: 28 },
-            { id: '3', name: 'Supplier C', submission_count: 20 }
-          ],
-          error_type_distribution: {
-            structure: 12,
-            field: 35,
-            sequence: 18,
-            aggregation: 7
-          }
-        };
-        
-        setStats(mockData);
         setError(null);
-      } catch (err) {
+        const data = await api.getDashboardStats();
+        
+        // Check if the response has the expected structure
+        if (!data || typeof data !== 'object') {
+          throw new Error('Invalid response format from server');
+        }
+
+        setStats(data);
+      } catch (err: any) {
         console.error('Error fetching dashboard stats:', err);
-        setError('Failed to load dashboard statistics');
+        setError(err?.response?.data?.detail || err.message || 'Failed to load dashboard statistics');
+        // Initialize with empty state instead of null
+        setStats({
+          total_submissions: 0,
+          successful_submissions: 0,
+          failed_submissions: 0,
+          submission_by_status: {
+            validated: 0,
+            held: 0,
+            failed: 0,
+            reprocessed: 0
+          },
+          top_suppliers: [],
+          error_type_distribution: {
+            structure: 0,
+            field: 0,
+            sequence: 0,
+            aggregation: 0
+          }
+        });
       } finally {
         setLoading(false);
       }
@@ -214,14 +216,7 @@ const Dashboard: React.FC = () => {
             <Typography variant="h6" gutterBottom>
               Performance Overview
             </Typography>
-            <PerformanceChart data={[
-              { month: 'Jan', accuracy: 92, errors: 12 },
-              { month: 'Feb', accuracy: 88, errors: 15 },
-              { month: 'Mar', accuracy: 95, errors: 8 },
-              { month: 'Apr', accuracy: 94, errors: 10 },
-              { month: 'May', accuracy: 96, errors: 7 },
-              { month: 'Jun', accuracy: 93, errors: 11 }
-            ]} />
+            <PerformanceChart data={performanceData} />
           </Paper>
         </Grid>
         {/* Summary cards */}
