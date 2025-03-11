@@ -42,7 +42,7 @@ export const api = {
           {
             id: 'supplier_1',
             name: 'Supplier A', 
-            score: 85,
+            //score: 85,
             error_rate: 0.15,
             submission_count: 42
           },
