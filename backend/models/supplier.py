@@ -10,6 +10,7 @@ class Supplier(Base):
     
     id = Column(String, primary_key=True)
     name = Column(String, nullable=False, unique=True)
+    status = Column(String, nullable=True, default='active')  # active, inactive, suspended
     
     # Scorecard metrics
     data_accuracy = Column(Float, default=100.0)  # Percentage
@@ -35,7 +36,7 @@ class Supplier(Base):
                              backref="supplier")
     
     def __repr__(self):
-        return f"<Supplier(id='{self.id}', name='{self.name}')>"
+        return f"<Supplier(id='{self.id}', name='{self.name}', status='{self.status}')>"
 
 class PerformanceTrend(Base):
     """Supplier performance trend model for tracking metrics over time"""

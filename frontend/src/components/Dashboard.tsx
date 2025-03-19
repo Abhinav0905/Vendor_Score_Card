@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   Container,
@@ -9,15 +9,10 @@ import {
   CardContent,
   CircularProgress,
   Alert,
-  Divider,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
   TextField,
-  InputAdornment
+  InputAdornment,
+  useTheme,
+  useMediaQuery
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 import { Bar, Doughnut } from 'react-chartjs-2';
@@ -32,11 +27,9 @@ import {
   Legend
 } from 'chart.js';
 import api from '../services/api';
-import { DashboardStats, TopSupplier } from '../types/supplier';
+import { DashboardStats } from '../types/supplier';
 import QueryInput from './nlp/QueryInput';
 import EPCISFileDropZone from './EPCISFileDropZone';
-import EPCISSubmissionForm from './EPCISSubmissionForm';
-import SupplierScorecard from './SupplierScorecard';
 import PerformanceChart from './charts/PerformanceChart';
 
 // Register Chart.js components
@@ -56,50 +49,36 @@ const Dashboard: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [nlpQueryResult, setNlpQueryResult] = useState<any>(null);
-  const [performanceData, setPerformanceData] = useState<any[]>([]);
+
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
+
+  const fetchDashboardStats = useCallback(async () => {
+    try {
+      const data = await api.getDashboardStats();
+      setStats(data);
+      setError(null);
+    } catch (err: any) {
+      console.error('Error fetching dashboard stats:', err);
+      setError(err?.response?.data?.detail || err.message || 'Failed to load dashboard statistics');
+    }
+  }, []);
 
   useEffect(() => {
-    const fetchDashboardStats = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        const data = await api.getDashboardStats();
-        
-        // Check if the response has the expected structure
-        if (!data || typeof data !== 'object') {
-          throw new Error('Invalid response format from server');
-        }
-
-        setStats(data);
-      } catch (err: any) {
-        console.error('Error fetching dashboard stats:', err);
-        setError(err?.response?.data?.detail || err.message || 'Failed to load dashboard statistics');
-        // Initialize with empty state instead of null
-        setStats({
-          total_submissions: 0,
-          successful_submissions: 0,
-          failed_submissions: 0,
-          submission_by_status: {
-            validated: 0,
-            held: 0,
-            failed: 0,
-            reprocessed: 0
-          },
-          top_suppliers: [],
-          error_type_distribution: {
-            structure: 0,
-            field: 0,
-            sequence: 0,
-            aggregation: 0
-          }
-        });
-      } finally {
-        setLoading(false);
-      }
+    const initialLoad = async () => {
+      setLoading(true);
+      await fetchDashboardStats();
+      setLoading(false);
     };
+    
+    initialLoad();
 
-    fetchDashboardStats();
-  }, []);
+    // Set up polling every 5 seconds
+    const intervalId = setInterval(fetchDashboardStats, 5000);
+
+    // Cleanup interval on component unmount
+    return () => clearInterval(intervalId);
+  }, [fetchDashboardStats]);
 
   const handleSearchChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     setSearchQuery(event.target.value);
@@ -119,221 +98,155 @@ const Dashboard: React.FC = () => {
 
   if (error || !stats) {
     return (
-      <Container maxWidth="lg" sx={{ mt: 4 }}>
-        <Alert severity="error">
-          {error || 'Failed to load dashboard data'}
-        </Alert>
-      </Container>
+      <Box p={3}>
+        <Alert severity="error">{error || 'Failed to load dashboard'}</Alert>
+      </Box>
     );
   }
 
-  // Prepare data for status distribution chart
+  // Dashboard data transformations
   const statusDistributionData = {
-    labels: Object.keys(stats.submission_by_status).map(
-      status => status.charAt(0).toUpperCase() + status.slice(1)
-    ),
-    datasets: [
-      {
-        data: Object.values(stats.submission_by_status),
-        backgroundColor: [
-          'rgba(54, 162, 235, 0.6)',  // validated
-          'rgba(255, 206, 86, 0.6)',  // held
-          'rgba(75, 192, 192, 0.6)',  // reprocessed
-          'rgba(255, 99, 132, 0.6)',  // failed
-        ],
-        borderColor: [
-          'rgba(54, 162, 235, 1)',
-          'rgba(255, 206, 86, 1)',
-          'rgba(75, 192, 192, 1)',
-          'rgba(255, 99, 132, 1)',
-        ],
-        borderWidth: 1,
-      },
-    ],
+    labels: Object.keys(stats.submission_by_status),
+    datasets: [{
+      data: Object.values(stats.submission_by_status),
+      backgroundColor: ['#4caf50', '#ff9800', '#f44336', '#2196f3'],
+    }]
   };
 
-  // Prepare data for error type distribution chart
-  const errorTypeLabels = Object.keys(stats.error_type_distribution);
   const errorTypeData = {
-    labels: errorTypeLabels.map(type => type.charAt(0).toUpperCase() + type.slice(1)),
-    datasets: [
-      {
-        label: 'Error Count',
-        data: errorTypeLabels.map(type => stats.error_type_distribution[type]),
-        backgroundColor: 'rgba(255, 99, 132, 0.6)',
-        borderColor: 'rgba(255, 99, 132, 1)',
-        borderWidth: 1,
-      },
-    ],
+    labels: Object.keys(stats.error_type_distribution),
+    datasets: [{
+      data: Object.values(stats.error_type_distribution),
+      backgroundColor: theme.palette.primary.main,
+    }]
   };
-
-  // Filter suppliers based on search query if needed
-  const filteredSuppliers = stats.top_suppliers.filter(supplier =>
-    searchQuery === '' || supplier.name.toLowerCase().includes(searchQuery.toLowerCase())
-  );
 
   return (
-    <Container maxWidth="lg" sx={{ mt: 4, mb: 8 }}>
-      <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
-        <Typography variant="h4" component="h1">
-          Supplier Scorecard Dashboard
-        </Typography>
-        
-        <TextField
-          placeholder="Search suppliers..."
-          size="small"
-          variant="outlined"
-          value={searchQuery}
-          onChange={handleSearchChange}
-          sx={{ width: '250px' }}
-          InputProps={{
-            startAdornment: (
-              <InputAdornment position="start">
-                <SearchIcon />
-              </InputAdornment>
-            ),
-          }}
-        />
+    <Box sx={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row' }}>
+      {/* Left Sidebar - File Drop Zone */}
+      <Box
+        sx={{
+          width: isMobile ? '100%' : '300px',
+          flexShrink: 0,
+          bgcolor: 'background.paper',
+          borderRight: isMobile ? 0 : 1,
+          borderBottom: isMobile ? 1 : 0,
+          borderColor: 'divider',
+          p: 2
+        }}
+      >
+        <EPCISFileDropZone />
       </Box>
-      {/* NLP query component */}
-      <Box mb={4}>
-        <QueryInput onQueryComplete={handleNlpQueryComplete} />
-      </Box>
-      <Grid container spacing={3}>
-        {/* EPCIS File Drop Zone */}
-        <Grid item xs={12}>
-          <EPCISFileDropZone />
+
+      {/* Main Content */}
+      <Box sx={{ flexGrow: 1, p: 3, overflow: 'auto' }}>
+        <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
+          <Typography variant="h4" component="h1">
+            EPCIS Dashboard
+          </Typography>
+          
+          <TextField
+            placeholder="Search..."
+            size="small"
+            variant="outlined"
+            value={searchQuery}
+            onChange={handleSearchChange}
+            sx={{ width: '250px' }}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon />
+                </InputAdornment>
+              ),
+            }}
+          />
+        </Box>
+
+        {/* NLP Query Input */}
+        <Box mb={4}>
+          <QueryInput onQueryComplete={handleNlpQueryComplete} />
+        </Box>
+
+        {/* Summary Cards */}
+        <Grid container spacing={3} mb={4}>
+          <Grid item xs={12} md={4}>
+            <Card>
+              <CardContent>
+                <Typography variant="h6" gutterBottom>Total Submissions</Typography>
+                <Typography variant="h3" color="primary">
+                  {stats.total_submissions}
+                </Typography>
+              </CardContent>
+            </Card>
+          </Grid>
+          
+          <Grid item xs={12} md={4}>
+            <Card>
+              <CardContent>
+                <Typography variant="h6" gutterBottom>Success Rate</Typography>
+                <Typography variant="h3" color="success.main">
+                  {((stats.successful_submissions / stats.total_submissions) * 100).toFixed(1)}%
+                </Typography>
+              </CardContent>
+            </Card>
+          </Grid>
+          
+          <Grid item xs={12} md={4}>
+            <Card>
+              <CardContent>
+                <Typography variant="h6" gutterBottom>Failed Submissions</Typography>
+                <Typography variant="h3" color="error">
+                  {stats.failed_submissions}
+                </Typography>
+              </CardContent>
+            </Card>
+          </Grid>
         </Grid>
-        {/* EPCIS Submission Form */}
-        <Grid item xs={12} md={6}>
-          <Paper sx={{ p: 2 }}>
-            <EPCISSubmissionForm />
-          </Paper>
-        </Grid>
-        {/* Performance Overview */}
-        <Grid item xs={12} md={6}>
-          <Paper sx={{ p: 2 }}>
-            <Typography variant="h6" gutterBottom>
-              Performance Overview
-            </Typography>
-            <PerformanceChart data={performanceData} />
-          </Paper>
-        </Grid>
-        {/* Summary cards */}
-        <Grid item xs={12} md={4}>
-          <Card>
-            <CardContent>
-              <Typography variant="h6" gutterBottom>Total Submissions</Typography>
-              <Typography variant="h3" color="primary">
-                {stats.total_submissions}
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        
-        <Grid item xs={12} md={4}>
-          <Card>
-            <CardContent>
-              <Typography variant="h6" gutterBottom>Success Rate</Typography>
-              <Typography variant="h3" color="success.main">
-                {stats.total_submissions > 0 
-                  ? `${((stats.successful_submissions / stats.total_submissions) * 100).toFixed(1)}%` 
-                  : '0%'
-                }
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        
-        <Grid item xs={12} md={4}>
-          <Card>
-            <CardContent>
-              <Typography variant="h6" gutterBottom>Failure Rate</Typography>
-              <Typography variant="h3" color="error">
-                {stats.total_submissions > 0 
-                  ? `${((stats.failed_submissions / stats.total_submissions) * 100).toFixed(1)}%` 
-                  : '0%'
-                }
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
+
         {/* Charts */}
-        <Grid item xs={12} md={6}>
-          <Paper sx={{ p: 2 }}>
-            <Typography variant="h6" gutterBottom>Submission Status Distribution</Typography>
-            <Box height={300}>
-              <Doughnut 
-                data={statusDistributionData} 
-                options={{
-                  responsive: true,
-                  maintainAspectRatio: false,
-                  plugins: {
-                    legend: {
-                      position: 'right',
+        <Grid container spacing={3}>
+          <Grid item xs={12} md={6}>
+            <Paper sx={{ p: 2 }}>
+              <Typography variant="h6" gutterBottom>Submission Status Distribution</Typography>
+              <Box height={300}>
+                <Doughnut 
+                  data={statusDistributionData} 
+                  options={{
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                      legend: {
+                        position: 'right',
+                      },
                     },
-                  },
-                }}
-              />
-            </Box>
-          </Paper>
-        </Grid>
-        
-        <Grid item xs={12} md={6}>
-          <Paper sx={{ p: 2 }}>
-            <Typography variant="h6" gutterBottom>Error Type Distribution</Typography>
-            <Box height={300}>
-              <Bar 
-                data={errorTypeData} 
-                options={{
-                  responsive: true,
-                  maintainAspectRatio: false,
-                  plugins: {
-                    legend: {
-                      display: false,
+                  }}
+                />
+              </Box>
+            </Paper>
+          </Grid>
+          
+          <Grid item xs={12} md={6}>
+            <Paper sx={{ p: 2 }}>
+              <Typography variant="h6" gutterBottom>Error Type Distribution</Typography>
+              <Box height={300}>
+                <Bar 
+                  data={errorTypeData} 
+                  options={{
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                      legend: {
+                        display: false,
+                      },
                     },
-                  },
-                }}
-              />
-            </Box>
-          </Paper>
+                  }}
+                />
+              </Box>
+            </Paper>
+          </Grid>
         </Grid>
-        
-        {/* Top Suppliers */}
-        <Grid item xs={12}>
-          <Paper sx={{ p: 2 }}>
-            <Typography variant="h6" gutterBottom>
-              Top Suppliers by Submission Volume
-            </Typography>
-            <TableContainer>
-              <Table>
-                <TableHead>
-                  <TableRow>
-                    <TableCell><strong>Supplier Name</strong></TableCell>
-                    <TableCell align="right"><strong>Submissions</strong></TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {filteredSuppliers.map((supplier: TopSupplier) => (
-                    <TableRow key={supplier.id}>
-                      <TableCell>
-                        {supplier.name}
-                      </TableCell>
-                      <TableCell align="right">{supplier.submission_count}</TableCell>
-                    </TableRow>
-                  ))}
-                  {filteredSuppliers.length === 0 && (
-                    <TableRow>
-                      <TableCell colSpan={2} align="center">No suppliers found matching your search</TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            </TableContainer>
-          </Paper>
-        </Grid>
-      </Grid>
-    </Container>
+      </Box>
+    </Box>
   );
 };
 

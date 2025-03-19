@@ -12,7 +12,9 @@ import {
   MenuItem,
   FormControl,
   InputLabel,
-  SelectChangeEvent
+  SelectChangeEvent,
+  Alert,
+  useTheme
 } from '@mui/material';
 import { Bar, Line } from 'react-chartjs-2';
 import {
@@ -29,6 +31,7 @@ import {
 } from 'chart.js';
 import api from '../services/api';
 import { SupplierScorecard as ScorecardType } from '../types/supplier';
+import VendorErrorAnalytics from './VendorErrorAnalytics';
 
 // Register Chart.js components
 ChartJS.register(
@@ -51,6 +54,7 @@ const SupplierScorecard: React.FC<SupplierScorecardProps> = ({ supplierId }) => 
   const [loading, setLoading] = useState<boolean>(true);
   const [timeRange, setTimeRange] = useState<number>(30);
   const [error, setError] = useState<string | null>(null);
+  const theme = useTheme();
 
   useEffect(() => {
     const fetchScorecard = async () => {
@@ -168,6 +172,20 @@ const SupplierScorecard: React.FC<SupplierScorecardProps> = ({ supplierId }) => 
       }
     ]
   };
+
+  // Transform weekly trends data for the error analytics component
+  const errorTrends = scorecard.weekly_trends.map(trend => ({
+    date: trend.week,
+    errorCount: trend.errors,
+    errorRate: trend.error_rate
+  }));
+
+  // Transform error types data
+  const errorTypes = Object.entries(scorecard.error_stats.error_type_breakdown).map(([type, count]) => ({
+    type: type.charAt(0).toUpperCase() + type.slice(1),
+    count,
+    severity: type.includes('warning') ? 'warning' as const : 'error' as const
+  }));
 
   return (
     <Card>
@@ -338,6 +356,17 @@ const SupplierScorecard: React.FC<SupplierScorecardProps> = ({ supplierId }) => 
                 </Card>
               </Grid>
             </Grid>
+          </Grid>
+
+          {/* Error Analytics */}
+          <Grid item xs={12}>
+            <VendorErrorAnalytics
+              vendorName={scorecard.supplier_name}
+              errorTrends={errorTrends}
+              errorTypes={errorTypes}
+              totalSubmissions={scorecard.submission_stats.total}
+              errorRate={scorecard.error_rate}
+            />
           </Grid>
         </Grid>
       </CardContent>

@@ -10,10 +10,10 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 from models.base import SessionLocal, engine, Base
 from models.supplier import Supplier
-from models.epcis_submission import EPCISSubmission
+from models.epcis_submission import EPCISSubmission, ValidationError, FileStatus
 from epcis.file_watcher import EPCISFileWatcher
 from epcis.submission_service import SubmissionService
-from epcis.validator import EPCISValidator
+from epcis import EPCISValidator  # Updated import path
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -89,55 +89,42 @@ async def health_check():
 @app.post("/epcis/upload")
 async def upload_epcis_file(
     file: UploadFile = File(...),
-    supplier_id: str = Form(...)
+    supplier_id: Optional[str] = Form(None)
 ) -> Dict[str, Any]:
     """Upload and process an EPCIS file"""
     try:
-        # Log upload attempt
-        logger.info(f"Receiving EPCIS file upload: {file.filename} for supplier: {supplier_id}")
-        
-        # Check file size limit (10MB)
-        file_size_limit = 10 * 1024 * 1024  # 10 MB
-        file_content = await file.read()
-        if len(file_content) > file_size_limit:
-            raise HTTPException(
-                status_code=413,  # Request Entity Too Large
-                detail="File size exceeds the 10MB limit"
-            )
-        
-        # Check file extension
+        # Validate file type
         allowed_extensions = ['.xml', '.json']
         file_ext = os.path.splitext(file.filename)[1].lower()
         if file_ext not in allowed_extensions:
             raise HTTPException(
-                status_code=415,  # Unsupported Media Type
+                status_code=415,
                 detail=f"Unsupported file type. Allowed types: {', '.join(allowed_extensions)}"
             )
         
-        # Verify supplier ID exists in our mapping
-        valid_suppliers = list(supplier_mapping.keys()) + list(supplier_mapping.values())
-        if supplier_id not in valid_suppliers:
+        # Read file content
+        file_content = await file.read()
+        if len(file_content) > 10 * 1024 * 1024:  # 10MB limit
             raise HTTPException(
-                status_code=400,
-                detail=f"Invalid supplier ID. Valid IDs: {', '.join(valid_suppliers)}"
+                status_code=413,
+                detail="File size exceeds the 10MB limit"
             )
         
-        # Process the submission
+        # Process submission
         result = await submission_service.process_submission(
             file_content=file_content,
             file_name=file.filename,
             supplier_id=supplier_id
         )
         
-        if not result.get('success', False):
-            logger.warning(f"Submission processing warning: {result.get('message')}")
-            
+        # Return appropriate status code based on validation result
+        status_code = result.get('status_code', 200)
         return result
-    except HTTPException:
-        # Re-raise HTTP exceptions without modification
-        raise
+
+    except HTTPException as http_error:
+        raise http_error
     except Exception as e:
-        logger.exception(f"Unexpected error processing EPCIS file: {str(e)}")
+        logger.exception(f"Error processing EPCIS file: {str(e)}")
         raise HTTPException(
             status_code=500,
             detail=f"Error processing file: {str(e)}"
@@ -285,7 +272,7 @@ async def get_dashboard_stats(db: Session = Depends(get_db)) -> Dict[str, Any]:
             ).count()
             status_counts[status] = count
         
-        # Get top suppliers by submission count using func.count()
+        # Get top suppliers by submission count
         top_suppliers = []
         supplier_counts = (
             db.query(
@@ -305,19 +292,19 @@ async def get_dashboard_stats(db: Session = Depends(get_db)) -> Dict[str, Any]:
                 'submission_count': supplier.submission_count
             })
         
-        # Get error type distribution
+        # Get error type distribution by joining with validation errors table
         error_types = {
             'structure': db.query(EPCISSubmission).filter(
                 EPCISSubmission.has_structure_errors == True
             ).count(),
-            'field': db.query(EPCISSubmission).filter(
-                EPCISSubmission.error_count > 0
+            'field': db.query(ValidationError).filter(
+                ValidationError.error_type == 'field'
             ).count(),
             'sequence': db.query(EPCISSubmission).filter(
                 EPCISSubmission.has_sequence_errors == True
             ).count(),
-            'aggregation': db.query(EPCISSubmission).filter(
-                EPCISSubmission.status == 'held'
+            'aggregation': db.query(ValidationError).filter(
+                ValidationError.error_type == 'aggregation'
             ).count()
         }
         

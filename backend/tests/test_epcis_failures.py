@@ -2,7 +2,7 @@ import unittest
 import os
 import xml.etree.ElementTree as ET
 from pathlib import Path
-from backend.epcis.validator import EPCISValidator
+from backend.epcis import EPCISValidator  # Updated import path
 import logging
 from datetime import datetime
 
@@ -321,6 +321,162 @@ class TestEPCISFailures(unittest.TestCase):
             # The total errors should be more than just the commissioning errors
             self.assertTrue(len(all_errors) > 0, 
                          "Expected validation errors in addition to commissioning errors")
+
+class TestEPCISFailureScenarios(unittest.TestCase):
+    """Test specific EPCIS failure scenarios seen in production"""
+    
+    def setUp(self):
+        self.validator = EPCISValidator()
+        
+        # XML template with duplicate commissioning events and missing bizStep
+        self.problematic_epcis_xml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<ns4:EPCISDocument xmlns:cbvmda="urn:epcglobal:cbv:mda" xmlns:ns4="urn:epcglobal:epcis:xsd:1">
+    <EPCISBody>
+        <EventList>
+            <!-- First commissioning of SGTIN -->
+            <ObjectEvent>
+                <eventTime>2024-05-24T00:00:00.000000Z</eventTime>
+                <eventTimeZoneOffset>+08:00</eventTimeZoneOffset>
+                <epcList>
+                    <epc>urn:epc:id:sgtin:0327808.019001.100000001</epc>
+                </epcList>
+                <action>ADD</action>
+                <bizStep>urn:epcglobal:cbv:bizstep:commissioning</bizStep>
+                <disposition>urn:epcglobal:cbv:disp:active</disposition>
+                <readPoint><id>urn:epc:id:sgln:0327808.00000.0</id></readPoint>
+                <bizLocation><id>urn:epc:id:sgln:0327808.00000.0</id></bizLocation>
+                <extension>
+                    <ilmd>
+                        <cbvmda:lotNumber>TEST123</cbvmda:lotNumber>
+                        <cbvmda:itemExpirationDate>2027-04-30</cbvmda:itemExpirationDate>
+                    </ilmd>
+                </extension>
+            </ObjectEvent>
+            
+            <!-- Duplicate commissioning of same SGTIN -->
+            <ObjectEvent>
+                <eventTime>2024-05-24T00:00:01.000000Z</eventTime>
+                <eventTimeZoneOffset>+08:00</eventTimeZoneOffset>
+                <epcList>
+                    <epc>urn:epc:id:sgtin:0327808.019001.100000001</epc>
+                </epcList>
+                <action>ADD</action>
+                <bizStep>urn:epcglobal:cbv:bizstep:commissioning</bizStep>
+                <disposition>urn:epcglobal:cbv:disp:active</disposition>
+                <readPoint><id>urn:epc:id:sgln:0327808.00000.0</id></readPoint>
+                <bizLocation><id>urn:epc:id:sgln:0327808.00000.0</id></bizLocation>
+                <extension>
+                    <ilmd>
+                        <cbvmda:lotNumber>TEST123</cbvmda:lotNumber>
+                        <cbvmda:itemExpirationDate>2027-04-30</cbvmda:itemExpirationDate>
+                    </ilmd>
+                </extension>
+            </ObjectEvent>
+            
+            <!-- Shipping event with missing bizStep -->
+            <ObjectEvent>
+                <eventTime>2024-05-24T00:00:02.000000Z</eventTime>
+                <eventTimeZoneOffset>+08:00</eventTimeZoneOffset>
+                <epcList>
+                    <epc>urn:epc:id:sgtin:0327808.019001.100000001</epc>
+                </epcList>
+                <action>OBSERVE</action>
+                <disposition>urn:epcglobal:cbv:disp:in_transit</disposition>
+                <readPoint><id>urn:epc:id:sgln:0327808.00000.0</id></readPoint>
+                <bizLocation><id>urn:epc:id:sgln:0327808.00000.0</id></bizLocation>
+                <bizTransactionList>
+                    <bizTransaction type="urn:epcglobal:cbv:btt:po">TEST-PO-123</bizTransaction>
+                    <bizTransaction type="urn:epcglobal:cbv:btt:desadv">TEST-ASN-123</bizTransaction>
+                </bizTransactionList>
+            </ObjectEvent>
+        </EventList>
+    </EPCISBody>
+</ns4:EPCISDocument>"""
+
+    def test_duplicate_commissioning(self):
+        """Test detection of duplicate commissioning events"""
+        result = self.validator.validate(self.problematic_epcis_xml.encode(), is_xml=True)
+        
+        print("\nValidation errors for duplicate commissioning:")
+        for error in result['errors']:
+            print(f" - {error.get('type', 'unknown')}: {error.get('message', 'no message')}")
+            
+        self.assertFalse(result['valid'], "Document with duplicate commissioning should fail validation")
+        
+        # Check for duplicate commissioning error
+        duplicate_errors = [e for e in result['errors'] 
+                          if e.get('type') == 'sequence' and 'duplicate' in e.get('message', '').lower()]
+        self.assertTrue(len(duplicate_errors) > 0, 
+                       "Should detect duplicate commissioning events")
+
+    def test_missing_bizstep_shipping(self):
+        """Test detection of missing bizStep in shipping events"""
+        # Create XML with shipping event missing bizStep
+        result = self.validator.validate(self.problematic_epcis_xml.encode(), is_xml=True)
+        
+        print("\nValidation errors for missing bizStep:")
+        for error in result['errors']:
+            print(f" - {error.get('type', 'unknown')}: {error.get('message', 'no message')}")
+            
+        self.assertFalse(result['valid'], "Document with missing bizStep should fail validation")
+        
+        # Check for missing bizStep error
+        bizstep_errors = [e for e in result['errors'] 
+                         if e.get('type') == 'field' and 'bizStep' in e.get('message', '').lower()]
+        self.assertTrue(len(bizstep_errors) > 0, 
+                       "Should detect missing bizStep in shipping event")
+
+    def test_multiple_sscc_commissioning(self):
+        """Test handling of multiple SSCC commissioning events"""
+        # Create XML with multiple SSCC commissioning
+        multi_sscc_xml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<ns4:EPCISDocument xmlns:cbvmda="urn:epcglobal:cbv:mda" xmlns:ns4="urn:epcglobal:epcis:xsd:1">
+    <EPCISBody>
+        <EventList>
+            <!-- First SSCC commissioning -->
+            <ObjectEvent>
+                <eventTime>2024-05-24T00:00:00.000000Z</eventTime>
+                <eventTimeZoneOffset>+08:00</eventTimeZoneOffset>
+                <epcList>
+                    <epc>urn:epc:id:sscc:0327808.0000000001</epc>
+                </epcList>
+                <action>ADD</action>
+                <bizStep>urn:epcglobal:cbv:bizstep:commissioning</bizStep>
+                <disposition>urn:epcglobal:cbv:disp:active</disposition>
+                <readPoint><id>urn:epc:id:sgln:0327808.00000.0</id></readPoint>
+                <bizLocation><id>urn:epc:id:sgln:0327808.00000.0</id></bizLocation>
+            </ObjectEvent>
+            
+            <!-- Duplicate SSCC commissioning -->
+            <ObjectEvent>
+                <eventTime>2024-05-24T00:00:01.000000Z</eventTime>
+                <eventTimeZoneOffset>+08:00</eventTimeZoneOffset>
+                <epcList>
+                    <epc>urn:epc:id:sscc:0327808.0000000001</epc>
+                </epcList>
+                <action>ADD</action>
+                <bizStep>urn:epcglobal:cbv:bizstep:commissioning</bizStep>
+                <disposition>urn:epcglobal:cbv:disp:active</disposition>
+                <readPoint><id>urn:epc:id:sgln:0327808.00000.0</id></readPoint>
+                <bizLocation><id>urn:epc:id:sgln:0327808.00000.0</id></bizLocation>
+            </ObjectEvent>
+        </EventList>
+    </EPCISBody>
+</ns4:EPCISDocument>"""
+        
+        result = self.validator.validate(multi_sscc_xml.encode(), is_xml=True)
+        
+        print("\nValidation errors for multiple SSCC commissioning:")
+        for error in result['errors']:
+            print(f" - {error.get('type', 'unknown')}: {error.get('message', 'no message')}")
+            
+        self.assertFalse(result['valid'], "Document with duplicate SSCC commissioning should fail validation")
+        
+        # Check for duplicate commissioning error
+        duplicate_errors = [e for e in result['errors'] 
+                          if e.get('type') == 'sequence' and 'duplicate' in e.get('message', '').lower()]
+        self.assertTrue(len(duplicate_errors) > 0, 
+                       "Should detect duplicate SSCC commissioning events")
 
 if __name__ == '__main__':
     unittest.main()

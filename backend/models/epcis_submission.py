@@ -62,6 +62,7 @@ class ValidationError(Base):
     error_type = Column(String, nullable=False)  # structure, field, sequence
     severity = Column(String, nullable=False)  # error, warning
     message = Column(Text, nullable=False)
+    line_number = Column(Integer, nullable=True)  # Line number in the file where error occurred
     
     # Error resolution
     is_resolved = Column(Boolean, default=False)

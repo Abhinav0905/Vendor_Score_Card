@@ -23,48 +23,15 @@ interface Supplier {
   name: string;
 }
 
-const steps = ['Select Supplier', 'Upload File', 'Process'];
+const steps = ['Upload File', 'Process'];
 
 const EPCISSubmissionForm: React.FC = () => {
-  // Form state
-  const [selectedSupplierId, setSelectedSupplierId] = useState<string>('');
   const [file, setFile] = useState<File | null>(null);
   const [activeStep, setActiveStep] = useState<number>(0);
-  
-  // Data state
-  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<boolean>(false);
   const [submissionResult, setSubmissionResult] = useState<any>(null);
-  
-  // Fetch suppliers on component mount
-  useEffect(() => {
-    const fetchSuppliers = async () => {
-      setLoading(true);
-      try {
-        // In production, replace with actual API call
-        // const response = await api.get('/suppliers');
-        // setSuppliers(response.data);
-        
-        // Mock data for now
-        setSuppliers([
-          { id: 'supplier_1', name: 'Supplier A' },
-          { id: 'supplier_2', name: 'Supplier B' },
-          { id: 'supplier_3', name: 'Supplier C' },
-        ]);
-        
-        setError(null);
-      } catch (err) {
-        console.error('Error fetching suppliers:', err);
-        setError('Failed to load suppliers');
-      } finally {
-        setLoading(false);
-      }
-    };
-    
-    fetchSuppliers();
-  }, []);
   
   // File input change handler
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -84,13 +51,6 @@ const EPCISSubmissionForm: React.FC = () => {
     }
   };
   
-  // Supplier select change handler
-  const handleSupplierChange = (event: React.ChangeEvent<{ value: unknown }>) => {
-    setSelectedSupplierId(event.target.value as string);
-    setError(null);
-    nextStep();
-  };
-  
   // Step navigation
   const nextStep = () => {
     setActiveStep((prevStep) => prevStep + 1);
@@ -101,7 +61,6 @@ const EPCISSubmissionForm: React.FC = () => {
   };
   
   const resetForm = () => {
-    setSelectedSupplierId('');
     setFile(null);
     setActiveStep(0);
     setSuccess(false);
@@ -111,8 +70,8 @@ const EPCISSubmissionForm: React.FC = () => {
   
   // Form submission handler
   const handleSubmit = async () => {
-    if (!file || !selectedSupplierId) {
-      setError('Please select both a supplier and a file');
+    if (!file) {
+      setError('Please select a file');
       return;
     }
     
@@ -120,10 +79,8 @@ const EPCISSubmissionForm: React.FC = () => {
     setError(null);
     
     try {
-      // Create form data
       const formData = new FormData();
       formData.append('file', file);
-      formData.append('supplier_id', selectedSupplierId);
       
       // Send to API
       const response = await api.post('/epcis/upload', formData, {
@@ -176,25 +133,6 @@ const EPCISSubmissionForm: React.FC = () => {
       
       <Paper elevation={3} sx={{ p: 3 }}>
         {activeStep === 0 && (
-          <FormControl fullWidth>
-            <InputLabel id="supplier-select-label">Select Supplier</InputLabel>
-            <Select
-              labelId="supplier-select-label"
-              value={selectedSupplierId}
-              label="Select Supplier"
-              onChange={handleSupplierChange}
-              disabled={loading}
-            >
-              {suppliers.map((supplier) => (
-                <MenuItem key={supplier.id} value={supplier.id}>
-                  {supplier.name}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-        )}
-        
-        {activeStep === 1 && (
           <Box 
             sx={{ 
               border: '2px dashed #ccc',
@@ -231,11 +169,13 @@ const EPCISSubmissionForm: React.FC = () => {
             
             <Typography variant="caption" display="block" sx={{ mt: 1, color: 'text.secondary' }}>
               Supported formats: XML, JSON
+              <br />
+              File name format: EPCIS_VENDORNAME_*.xml
             </Typography>
           </Box>
         )}
         
-        {activeStep === 2 && (
+        {activeStep === 1 && (
           <Box sx={{ textAlign: 'center' }}>
             {loading ? (
               <CircularProgress />
@@ -248,6 +188,11 @@ const EPCISSubmissionForm: React.FC = () => {
                 
                 {submissionResult && (
                   <Box sx={{ mt: 2, textAlign: 'left' }}>
+                    {submissionResult.supplier_name && (
+                      <Typography variant="body2">
+                        Vendor: {submissionResult.supplier_name}
+                      </Typography>
+                    )}
                     <Typography variant="body2">
                       Status: {submissionResult.status}
                     </Typography>
@@ -272,9 +217,6 @@ const EPCISSubmissionForm: React.FC = () => {
               <Box>
                 <Typography variant="h6" gutterBottom>
                   Confirm Upload
-                </Typography>
-                <Typography variant="body2" gutterBottom>
-                  Supplier: {suppliers.find(s => s.id === selectedSupplierId)?.name}
                 </Typography>
                 <Typography variant="body2" gutterBottom>
                   File: {file?.name} ({file && (file.size / 1024).toFixed(2)} KB)

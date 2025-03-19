@@ -54,8 +54,11 @@ export interface ValidationError {
   type: string; // structure, field, sequence, aggregation
   severity: string; // error, warning
   message: string;
+  line_number?: number;
   is_resolved: boolean;
   resolution_note?: string;
+  resolved_at?: string;
+  resolved_by?: string;
 }
 
 export interface EPCISSubmission {

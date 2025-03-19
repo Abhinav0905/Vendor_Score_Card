@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<epcis:EPCISDocument xmlns:epcis="urn:epcglobal:epcis:xsd:1">
+    <EPCISBody>
+        <EventList>
+            <ObjectEvent>
+                <!-- Missing required eventTime -->
+                <eventTimeZoneOffset>+00:00</eventTimeZoneOffset>
+                <epcList>
+                    <epc>invalid-epc-format</epc>
+                </epcList>
+                <action>INVALID_ACTION</action>
+            </ObjectEvent>
+        </EventList>
+    </EPCISBody>
+</epcis:EPCISDocument>

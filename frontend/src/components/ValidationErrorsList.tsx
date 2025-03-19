@@ -14,8 +14,11 @@ import {
   DialogContent,
   DialogContentText,
   DialogActions,
-  TextField
+  TextField,
+  Collapse
 } from '@mui/material';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import { ValidationError } from '../types/supplier';
 import api from '../services/api';
 
@@ -35,6 +38,7 @@ const ValidationErrorsList: React.FC<ValidationErrorsListProps> = ({
   const [resolutionNote, setResolutionNote] = useState('');
   const [resolvedBy, setResolvedBy] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [expandedErrors, setExpandedErrors] = useState<Record<string, boolean>>({});
 
   const handleOpenDialog = (error: ValidationError) => {
     setSelectedError(error);
@@ -62,6 +66,13 @@ const ValidationErrorsList: React.FC<ValidationErrorsListProps> = ({
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const toggleErrorExpansion = (errorId: string) => {
+    setExpandedErrors(prev => ({
+      ...prev,
+      [errorId]: !prev[errorId]
+    }));
   };
 
   // Group errors by type for better organization
@@ -124,50 +135,80 @@ const ValidationErrorsList: React.FC<ValidationErrorsListProps> = ({
               
               <List dense sx={{ maxHeight: 300, overflow: 'auto' }}>
                 {errorsByType[errorType].map(error => (
-                  <ListItem 
-                    key={error.id}
-                    sx={{
-                      opacity: error.is_resolved ? 0.6 : 1,
-                      bgcolor: error.is_resolved ? 'rgba(0, 0, 0, 0.04)' : 'inherit'
-                    }}
-                    secondaryAction={
-                      error.is_resolved ? (
-                        <Chip 
-                          label="Resolved" 
-                          color="success" 
-                          size="small" 
-                        />
-                      ) : (
+                  <React.Fragment key={error.id}>
+                    <ListItem 
+                      sx={{
+                        opacity: error.is_resolved ? 0.6 : 1,
+                        bgcolor: error.is_resolved ? 'rgba(0, 0, 0, 0.04)' : 'inherit',
+                        cursor: 'pointer'
+                      }}
+                      onClick={() => toggleErrorExpansion(error.id)}
+                    >
+                      <ListItemText
+                        primary={
+                          <Box display="flex" alignItems="center" gap={1}>
+                            <Chip 
+                              label={error.severity} 
+                              color={getSeverityColor(error.severity)} 
+                              size="small" 
+                            />
+                            <Typography variant="body2">
+                              {error.message}
+                              {error.line_number && (
+                                <Typography component="span" color="text.secondary">
+                                  {" "}(Line {error.line_number})
+                                </Typography>
+                              )}
+                            </Typography>
+                          </Box>
+                        }
+                        secondary={
+                          <Box display="flex" justifyContent="space-between" alignItems="center">
+                            {error.is_resolved && error.resolution_note ? (
+                              <Typography variant="caption" color="textSecondary">
+                                Resolution: {error.resolution_note}
+                              </Typography>
+                            ) : null}
+                            {expandedErrors[error.id] ? (
+                              <ExpandLessIcon fontSize="small" />
+                            ) : (
+                              <ExpandMoreIcon fontSize="small" />
+                            )}
+                          </Box>
+                        }
+                      />
+                      {!error.is_resolved && (
                         <Button
                           size="small"
                           variant="outlined"
-                          onClick={() => handleOpenDialog(error)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleOpenDialog(error);
+                          }}
+                          sx={{ ml: 2 }}
                         >
                           Resolve
                         </Button>
-                      )
-                    }
-                  >
-                    <ListItemText
-                      primary={
-                        <Box display="flex" alignItems="center" gap={1}>
-                          <Chip 
-                            label={error.severity} 
-                            color={getSeverityColor(error.severity)} 
-                            size="small" 
-                          />
-                          <Typography variant="body2">{error.message}</Typography>
-                        </Box>
-                      }
-                      secondary={
-                        error.is_resolved && error.resolution_note ? (
-                          <Typography variant="caption" color="textSecondary">
-                            Resolution: {error.resolution_note}
+                      )}
+                    </ListItem>
+                    <Collapse in={expandedErrors[error.id]}>
+                      <Box sx={{ p: 2, bgcolor: 'background.default' }}>
+                        <Typography variant="body2" component="pre" sx={{ 
+                          whiteSpace: 'pre-wrap',
+                          fontFamily: 'monospace',
+                          fontSize: '0.875rem'
+                        }}>
+                          {error.message}
+                        </Typography>
+                        {error.line_number && (
+                          <Typography variant="caption" color="text.secondary" display="block" mt={1}>
+                            Location: Line {error.line_number}
                           </Typography>
-                        ) : null
-                      }
-                    />
-                  </ListItem>
+                        )}
+                      </Box>
+                    </Collapse>
+                    <Divider />
+                  </React.Fragment>
                 ))}
               </List>
             </Paper>
@@ -175,12 +216,16 @@ const ValidationErrorsList: React.FC<ValidationErrorsListProps> = ({
         </>
       )}
 
-      {/* Resolution Dialog */}
       <Dialog open={openDialog} onClose={handleCloseDialog}>
         <DialogTitle>Resolve Error</DialogTitle>
         <DialogContent>
           <DialogContentText>
             {selectedError?.message}
+            {selectedError?.line_number && (
+              <Typography variant="body2" color="text.secondary">
+                Line: {selectedError.line_number}
+              </Typography>
+            )}
           </DialogContentText>
           
           <TextField
