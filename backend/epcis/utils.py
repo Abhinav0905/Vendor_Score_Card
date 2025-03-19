@@ -2,8 +2,12 @@ import logging
 from datetime import datetime
 from typing import Dict, Any, List
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+# Configure logging with ISO8601 timestamps
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s.%(msecs)03d %(levelname)s %(name)s: %(message)s',
+    datefmt='%Y-%m-%dT%H:%M:%S'
+)
 logger = logging.getLogger(__name__)
 
 def validate_date_format(date_str: str, format: str = "%Y-%m-%d") -> bool:
@@ -18,8 +22,10 @@ def validate_date_format(date_str: str, format: str = "%Y-%m-%d") -> bool:
     """
     try:
         datetime.strptime(date_str, format)
+        logger.debug(f"Date validation successful for: {date_str}")
         return True
-    except ValueError:
+    except ValueError as e:
+        logger.warning(f"Date validation failed for '{date_str}' with format '{format}': {str(e)}")
         return False
 
 def validate_dates_order(earlier_date: str, later_date: str, format: str = "%Y-%m-%d") -> bool:
@@ -36,8 +42,12 @@ def validate_dates_order(earlier_date: str, later_date: str, format: str = "%Y-%
     try:
         early_dt = datetime.strptime(earlier_date, format)
         late_dt = datetime.strptime(later_date, format)
-        return late_dt > early_dt
-    except ValueError:
+        is_valid = late_dt > early_dt
+        if not is_valid:
+            logger.warning(f"Date order validation failed: {later_date} is not after {earlier_date}")
+        return is_valid
+    except ValueError as e:
+        logger.error(f"Date order validation error: {str(e)}")
         return False
 
 def add_error(errors: List[Dict[str, str]], error_type: str, severity: str, message: str):
@@ -49,11 +59,16 @@ def add_error(errors: List[Dict[str, str]], error_type: str, severity: str, mess
         severity: Error severity ('error' or 'warning')
         message: Error message
     """
-    errors.append({
+    error = {
         'type': error_type,
         'severity': severity,
         'message': message
-    })
+    }
+    errors.append(error)
+    logger.log(
+        logging.ERROR if severity == 'error' else logging.WARNING,
+        f"Validation {severity}: [{error_type}] {message}"
+    )
 
 def extract_namespaces(xml_string: str) -> List[str]:
     """Extract namespace declarations from XML string
@@ -66,4 +81,8 @@ def extract_namespaces(xml_string: str) -> List[str]:
     """
     import re
     ns_matches = re.findall(r'xmlns(?:\:\w+)?=[\"\']([^\"\']+)[\"\']', xml_string)
+    if ns_matches:
+        logger.debug(f"Extracted {len(ns_matches)} namespaces from XML")
+    else:
+        logger.warning("No namespaces found in XML document")
     return ns_matches
