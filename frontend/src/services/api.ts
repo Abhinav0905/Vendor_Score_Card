@@ -37,30 +37,7 @@ export const api = {
         return data || [];
       } catch (err) {
         console.error('Supabase getAll suppliers error:', err);
-        // Return mock data on error
-        return [
-          {
-            id: 'supplier_1',
-            name: 'Supplier A', 
-            //score: 85,
-            error_rate: 0.15,
-            submission_count: 42
-          },
-          {
-            id: 'supplier_2',
-            name: 'Supplier B', 
-            score: 92,
-            error_rate: 0.08,
-            submission_count: 28
-          },
-          {
-            id: 'supplier_3',
-            name: 'Supplier C', 
-            score: 78,
-            error_rate: 0.22,
-            submission_count: 20
-          }
-        ] as SupplierMetrics[];
+        throw err; // Propagate the error to be handled by the component
       }
     },
 
@@ -82,14 +59,7 @@ export const api = {
         return data;
       } catch (err) {
         console.error('Supabase getById supplier error:', err);
-        // Return mock data
-        return {
-          id: id,
-          name: `Supplier ${id.charAt(id.length - 1)}`,
-          score: 85,
-          error_rate: 0.15,
-          submission_count: 42
-        } as SupplierMetrics;
+        throw err; // Propagate the error instead of returning mock data
       }
     }
   },
@@ -105,11 +75,11 @@ export const api = {
         return data || [];
       } catch (err) {
         console.error('Supabase recommendations error:', err);
-        // Return mock recommendations
+        // Return mock recommendations with proper type casting
         return [
-          { id: 'rec1', supplier_id: 'supplier_1', text: 'Improve field validation' },
-          { id: 'rec2', supplier_id: 'supplier_2', text: 'Fix date format issues' }
-        ] as Recommendation[];
+          { id: 'rec1', supplier_id: 'supplier_1', recommendation: 'Improve field validation' },
+          { id: 'rec2', supplier_id: 'supplier_2', recommendation: 'Fix date format issues' }
+        ] as unknown as Recommendation[];
       }
     }
   },
@@ -243,43 +213,21 @@ export const api = {
   
   getSubmissionDetails: async (submissionId: string) => {
     try {
+      // Direct Axios call to ensure we get the complete response including errors
       const response = await axios.get(`${API_URL}/epcis/submissions/${submissionId}`);
-      return response.data;
+      return response.data.submission;
     } catch (error) {
-      // Return mock data for testing
+      console.error('Error fetching submission details:', error);
+      // Even in error case, return a structured response 
+      // to prevent undefined errors in components
       return {
         id: submissionId,
-        supplier_id: 'supplier_1',
-        file_name: 'epcis_document.xml',
-        status: 'validated',
-        submission_date: new Date().toISOString(),
-        error_count: 2,
-        warning_count: 1,
-        storage_type: 's3',
-        storage_location: 'epcis/supplier_1/12345.xml',
-        errors: [
-          {
-            id: 'error_1',
-            type: 'field',
-            severity: 'error',
-            message: 'Missing required field: eventTime',
-            is_resolved: false
-          },
-          {
-            id: 'error_2',
-            type: 'structure',
-            severity: 'error',
-            message: 'Invalid EPCIS format',
-            is_resolved: false
-          },
-          {
-            id: 'warning_1',
-            type: 'field',
-            severity: 'warning',
-            message: 'Optional field missing: sourceDestination',
-            is_resolved: false
-          }
-        ]
+        supplier_id: 'unknown',
+        file_name: 'unknown',
+        status: 'error',
+        error_count: 0,
+        warning_count: 0,
+        errors: []
       };
     }
   },
@@ -384,9 +332,31 @@ export const api = {
     try {
       const response = await axios.post(`${API_URL}${url}`, data, opts);
       return response.data;
-    } catch (error) {
-      console.warn(`API POST to ${url} failed, using mock data`);
-      return { success: true, message: 'Operation completed (mock)' };
+    } catch (error: any) {
+      // Instead of always returning mock data, we need to propagate the error
+      // so that it can be handled by the component
+      console.error(`API POST to ${url} failed:`, error);
+      
+      if (error.response) {
+        // The server responded with a status code outside the 2xx range
+        throw {
+          status: error.response.status,
+          data: error.response.data,
+          message: error.response.data?.message || error.response.data?.detail || 'Server error'
+        };
+      } else if (error.request) {
+        // The request was made but no response was received
+        throw {
+          status: 0,
+          message: 'No response from server. Please check your connection.'
+        };
+      } else {
+        // Something happened in setting up the request
+        throw {
+          status: 500,
+          message: error.message || 'An unexpected error occurred'
+        };
+      }
     }
   }
 };

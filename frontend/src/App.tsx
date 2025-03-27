@@ -1,9 +1,7 @@
 import React from 'react';
-import { ThemeProvider } from '@mui/material/styles';
 import { CssBaseline } from '@mui/material';
 import { ErrorBoundary } from 'react-error-boundary';
 import Dashboard from './components/Dashboard';
-import { theme } from './theme';
 
 function ErrorFallback({error}: {error: Error}) {
   return (
@@ -29,12 +27,10 @@ function ErrorFallback({error}: {error: Error}) {
 function App() {
   return (
     <ErrorBoundary FallbackComponent={ErrorFallback}>
-      <ThemeProvider theme={theme}>
-        <CssBaseline />
-        <div className="min-h-screen bg-gray-100">
-          <Dashboard />
-        </div>
-      </ThemeProvider>
+      <CssBaseline />
+      <div className="min-h-screen bg-gray-100">
+        <Dashboard />
+      </div>
     </ErrorBoundary>
   );
 }

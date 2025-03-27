@@ -6,13 +6,14 @@ import traceback
 import re
 from datetime import datetime
 from typing import Dict, Any, Optional, List, Tuple
-from models.epcis_submission import EPCISSubmission, ValidationError, FileStatus
+from models.epcis_submission import EPCISSubmission, ValidationError, FileStatus, ValidEPCISSubmission, ErroredEPCISSubmission
 from models.supplier import Supplier
 from models.base import SessionLocal
 from . import EPCISValidator
 from .storage_handlers import LocalStorageHandler, S3StorageHandler
 import xml.etree.ElementTree as ET
 import json
+from collections import defaultdict
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -43,13 +44,15 @@ class SubmissionService:
     def extract_vendor_from_filename(self, filename: str) -> Optional[str]:
         """Extract vendor name from filename following the pattern EPCIS_VENDORNAME_*"""
         patterns = [
-            r'EPCIS_([^_]+)_',  # Standard format: EPCIS_VENDORNAME_*
-            r'([^_]+)_EPCIS_',  # Alternative format: VENDORNAME_EPCIS_*
-            r'EPCIS[._-]([^._-]+)',  # Flexible separator: EPCIS[-._]VENDORNAME
+            r'EPCIS[._-]([^._-]+)',  # Match EPCIS[-._]VENDORNAME
+            r'EPCIS_([^_]+)_',       # Match EPCIS_VENDORNAME_
+            r'([^_]+)_EPCIS_',       # Match VENDORNAME_EPCIS_
+            r'([^_]+)_[0-9]+\.xml',  # Match VENDORNAME_12345.xml
+            r'^([A-Za-z0-9]+)[._-]', # Match starting with VENDORNAME
         ]
         
         for pattern in patterns:
-            match = re.match(pattern, filename, re.IGNORECASE)
+            match = re.search(pattern, filename, re.IGNORECASE)
             if match:
                 vendor_name = match.group(1).upper()
                 logger.info(f"Extracted vendor name '{vendor_name}' from filename: {filename}")
@@ -62,9 +65,18 @@ class SubmissionService:
         """Get an existing supplier or create a new one"""
         supplier = db.query(Supplier).filter_by(id=supplier_id).first()
         if not supplier:
+            # Check if we have a supplier with this name
+            supplier = db.query(Supplier).filter_by(name=supplier_id).first()
+            if supplier:
+                return supplier
+                
+            # Create new supplier with id as supplier_<name>
+            normalized_id = supplier_id.lower().replace(' ', '_')
+            new_id = f"supplier_{normalized_id}"
+            
             supplier = Supplier(
-                id=supplier_id,
-                name=supplier_id,  # Use ID as name by default
+                id=new_id,
+                name=supplier_id,  # Use original name for display
                 is_active=True,
                 data_accuracy=100.0,
                 error_rate=0.0,
@@ -73,7 +85,7 @@ class SubmissionService:
             )
             db.add(supplier)
             db.commit()
-            logger.info(f"Created new supplier: {supplier_id}")
+            logger.info(f"Created new supplier: {supplier_id} with ID {new_id}")
         return supplier
 
     def find_error_line_numbers(self, file_content: bytes, is_xml: bool) -> Dict[str, int]:
@@ -179,7 +191,7 @@ class SubmissionService:
             
             # Check for duplicate submission
             existing = db.query(EPCISSubmission).filter_by(
-                supplier_id=supplier_id,
+                supplier_id=supplier.id,  # Use the normalized supplier ID
                 file_hash=file_hash
             ).first()
             
@@ -206,7 +218,7 @@ class SubmissionService:
                 file_location = self.storage.store_file(
                     file_content=file_content,
                     file_name=storage_filename, 
-                    supplier_id=supplier_id
+                    supplier_id=supplier.id  # Use the normalized supplier ID
                 )
                 logger.info(f"File stored successfully at: {file_location}")
             except Exception as storage_error:
@@ -218,10 +230,10 @@ class SubmissionService:
                     "status_code": 500
                 }
             
-            # Create submission record
+            # Create master submission record
             submission = EPCISSubmission(
                 id=submission_id,
-                supplier_id=supplier_id,
+                supplier_id=supplier.id,  # Use the normalized supplier ID
                 file_name=file_name,
                 file_path=file_location,
                 file_size=len(file_content),
@@ -251,6 +263,7 @@ class SubmissionService:
                 logger.info(f"Validating file for submission: {submission_id}")
                 validation_result = self.validator.validate_document(file_content, is_xml=is_xml)
                 logger.info(f"Validation complete for submission: {submission_id}")
+                logger.info(f"Validation result: {validation_result}")
                 
                 # Find potential error line numbers
                 error_line_numbers = self.find_error_line_numbers(file_content, is_xml=is_xml)
@@ -314,9 +327,49 @@ class SubmissionService:
             submission.has_structure_errors = has_structure_errors
             submission.has_sequence_errors = has_sequence_errors
             
+            # Create specialized submission record based on validation result
+            if is_valid:
+                # Create valid submission record
+                valid_submission_id = str(uuid.uuid4())
+                valid_submission = ValidEPCISSubmission(
+                    id=valid_submission_id,
+                    master_submission_id=submission_id,
+                    supplier_id=supplier.id,  # Use the normalized supplier ID
+                    file_name=file_name,
+                    file_path=file_location,
+                    file_size=len(file_content),
+                    warning_count=warning_count,
+                    processed_event_count=validation_result.get('eventCount', 0),
+                    insertion_date=datetime.utcnow()
+                )
+                db.add(valid_submission)
+                submission.valid_submission_id = valid_submission_id
+                logger.info(f"Valid submission record created: {valid_submission_id}")
+            else:
+                # Create errored submission record
+                errored_submission_id = str(uuid.uuid4())
+                errored_submission = ErroredEPCISSubmission(
+                    id=errored_submission_id,
+                    master_submission_id=submission_id,
+                    supplier_id=supplier.id,  # Use the normalized supplier ID
+                    file_name=file_name,
+                    file_path=file_location,
+                    file_size=len(file_content),
+                    error_count=error_count,
+                    warning_count=warning_count,
+                    has_structure_errors=has_structure_errors,
+                    has_sequence_errors=has_sequence_errors,
+                    insertion_date=datetime.utcnow(),
+                    last_error_date=datetime.utcnow()
+                )
+                db.add(errored_submission)
+                submission.errored_submission_id = errored_submission_id
+                logger.info(f"Errored submission record created: {errored_submission_id}")
+            
             # Save validation errors to database
             try:
-                for error in errors:
+                aggregated_errors = self._aggregate_validation_errors(errors)
+                for error in aggregated_errors:
                     error_record = ValidationError(
                         id=str(uuid.uuid4()),
                         submission_id=submission_id,
@@ -349,9 +402,9 @@ class SubmissionService:
                 supplier.last_submission_date = datetime.utcnow()
                 
                 # Update error rate
-                total_submissions = db.query(EPCISSubmission).filter_by(supplier_id=supplier_id).count()
+                total_submissions = db.query(EPCISSubmission).filter_by(supplier_id=supplier.id).count()
                 error_submissions = db.query(EPCISSubmission).filter_by(
-                    supplier_id=supplier_id,
+                    supplier_id=supplier.id,
                     is_valid=False
                 ).count()
                 
@@ -368,12 +421,13 @@ class SubmissionService:
                 'success': True,
                 'message': 'File processed successfully',
                 'submission_id': submission_id,
-                'supplier_id': supplier_id,
+                'supplier_id': supplier.id,
                 'supplier_name': supplier.name,
                 'status': submission.status,
                 'error_count': error_count,
                 'warning_count': warning_count,
-                'errors': errors if not is_valid else [],
+                'is_valid': is_valid,
+                'errors': errors,  # Always include errors in the response
                 'status_code': 200
             }
             
@@ -399,7 +453,95 @@ class SubmissionService:
             }
         finally:
             db.close()
+            
+    def get_valid_submission(self, submission_id: str) -> Dict[str, Any]:
+        """Get details of a valid submission"""
+        db = SessionLocal()
+        try:
+            valid_submission = db.query(ValidEPCISSubmission).filter_by(id=submission_id).first()
+            if not valid_submission:
+                return {
+                    'success': False,
+                    'message': f"Valid submission {submission_id} not found"
+                }
+                
+            # Update last accessed date
+            valid_submission.last_accessed_date = datetime.utcnow()
+            db.commit()
+            
+            return {
+                'success': True,
+                'submission': {
+                    'id': valid_submission.id,
+                    'master_submission_id': valid_submission.master_submission_id,
+                    'supplier_id': valid_submission.supplier_id,
+                    'file_name': valid_submission.file_name,
+                    'file_path': valid_submission.file_path,
+                    'file_size': valid_submission.file_size,
+                    'warning_count': valid_submission.warning_count,
+                    'processed_event_count': valid_submission.processed_event_count,
+                    'insertion_date': valid_submission.insertion_date.isoformat(),
+                    'last_accessed_date': valid_submission.last_accessed_date.isoformat() if valid_submission.last_accessed_date else None
+                }
+            }
+        finally:
+            db.close()
     
+    def get_errored_submission(self, submission_id: str) -> Dict[str, Any]:
+        """Get details of an errored submission"""
+        db = SessionLocal()
+        try:
+            errored_submission = db.query(ErroredEPCISSubmission).filter_by(id=submission_id).first()
+            if not errored_submission:
+                return {
+                    'success': False,
+                    'message': f"Errored submission {submission_id} not found"
+                }
+            
+            # Get validation errors from master submission
+            master_submission = db.query(EPCISSubmission).filter_by(id=errored_submission.master_submission_id).first()
+            errors = []
+            
+            if master_submission:
+                errors = db.query(ValidationError).filter_by(submission_id=master_submission.id).all()
+            
+            return {
+                'success': True,
+                'submission': {
+                    'id': errored_submission.id,
+                    'master_submission_id': errored_submission.master_submission_id,
+                    'supplier_id': errored_submission.supplier_id,
+                    'file_name': errored_submission.file_name,
+                    'file_path': errored_submission.file_path,
+                    'file_size': errored_submission.file_size,
+                    'error_count': errored_submission.error_count,
+                    'warning_count': errored_submission.warning_count,
+                    'has_structure_errors': errored_submission.has_structure_errors,
+                    'has_sequence_errors': errored_submission.has_sequence_errors,
+                    'insertion_date': errored_submission.insertion_date.isoformat(),
+                    'last_error_date': errored_submission.last_error_date.isoformat() if errored_submission.last_error_date else None,
+                    'is_resolved': errored_submission.is_resolved,
+                    'resolution_date': errored_submission.resolution_date.isoformat() if errored_submission.resolution_date else None,
+                    'resolved_by': errored_submission.resolved_by,
+                    'errors': [
+                        {
+                            'id': error.id,
+                            'type': error.error_type,
+                            'severity': error.severity,
+                            'message': error.message,
+                            'line_number': error.line_number,
+                            'is_resolved': error.is_resolved,
+                            'resolution_note': error.resolution_note,
+                            'resolved_at': error.resolved_at.isoformat() if error.resolved_at else None,
+                            'resolved_by': error.resolved_by
+                        }
+                        for error in errors
+                    ]
+                }
+            }
+        finally:
+            db.close()
+            
     def get_submission(self, submission_id: str) -> Dict[str, Any]:
         """Get submission details by ID"""
         db = SessionLocal()
@@ -414,7 +556,7 @@ class SubmissionService:
             # Get validation errors
             errors = db.query(ValidationError).filter_by(submission_id=submission_id).all()
             
-            return {
+            result = {
                 'success': True,
                 'submission': {
                     'id': submission.id,
@@ -447,6 +589,15 @@ class SubmissionService:
                     ]
                 }
             }
+            
+            # Add references to specialized tables
+            if submission.valid_submission_id:
+                result['submission']['valid_submission_id'] = submission.valid_submission_id
+            
+            if submission.errored_submission_id:
+                result['submission']['errored_submission_id'] = submission.errored_submission_id
+                
+            return result
         finally:
             db.close()
     
@@ -505,3 +656,52 @@ class SubmissionService:
             }
         finally:
             db.close()
+    
+    def _aggregate_validation_errors(self, errors):
+        """Aggregate similar validation errors to reduce duplication"""
+        error_groups = defaultdict(list)
+        
+        # First pass - group by type, severity, and base message
+        for error in errors:
+            if not isinstance(error, dict):
+                continue
+                
+            message = error.get('message', '')
+            # Extract base message (everything before the specific ID)
+            if 'for urn:epc:' in message:
+                base_message = message.split('for urn:epc:')[0].strip()
+            else:
+                base_message = message
+                
+            key = (error.get('type', ''), error.get('severity', ''), base_message)
+            error_groups[key].append(error)
+        
+        # Second pass - create aggregated messages
+        aggregated = []
+        for (error_type, severity, base_message), group in error_groups.items():
+            if len(group) == 1:
+                # Single error - keep as is
+                aggregated.append(group[0])
+            else:
+                # Multiple similar errors - create aggregated message
+                example_ids = []
+                for err in group[:3]:  # Take first 3 as examples
+                    if 'for urn:epc:' in err['message']:
+                        id_part = err['message'].split('for urn:epc:')[1].strip()
+                        example_ids.append(f"urn:epc:{id_part}")
+                
+                agg_message = f"{base_message} ({len(group)} items)"
+                if example_ids:
+                    agg_message += f"\nExamples: {', '.join(example_ids)}"
+                    if len(group) > 3:
+                        agg_message += f"\n...and {len(group) - 3} more"
+                
+                aggregated.append({
+                    'type': error_type,
+                    'severity': severity,
+                    'message': agg_message,
+                    'count': len(group),
+                    'line_number': group[0].get('line_number')  # Use line number from first occurrence
+                })
+        
+        return aggregated

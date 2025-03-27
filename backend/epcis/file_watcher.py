@@ -79,6 +79,7 @@ class EPCISFileEventHandler(FileSystemEventHandler):
                 supplier_id=supplier_id
             )
             
+            # Process the result regardless of success/failure to ensure all errors are captured
             if result.get('success'):
                 logger.info(f"File {file_path} processed successfully")
                 
@@ -87,7 +88,14 @@ class EPCISFileEventHandler(FileSystemEventHandler):
                 if archived_path:
                     logger.info(f"File archived to {archived_path}")
             else:
-                logger.warning(f"File {file_path} processing failed: {result.get('message')}")
+                # Log errors but don't stop processing the file
+                error_count = len(result.get('errors', []))
+                logger.warning(f"File {file_path} has {error_count} validation issues: {result.get('message')}")
+                
+                # Still archive the file even if it has errors - it's been processed and errors are stored in DB
+                archived_path = self.file_handler.move_to_archive(file_path)
+                if archived_path:
+                    logger.info(f"File with errors archived to {archived_path}")
                 
         except Exception as e:
             logger.exception(f"Error processing file {file_path}: {e}")

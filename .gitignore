@@ -89,3 +89,6 @@ coverage
 .Spotlight-V100
 .Trashes
 ehthumbs.db
+*.xml
+*.sublime-project
+*.sublime-workspace
