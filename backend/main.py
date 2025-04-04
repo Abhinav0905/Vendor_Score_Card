@@ -564,6 +564,101 @@ async def get_submission_validation(
             detail=f"Error retrieving validation results: {str(e)}"
         )
 
+@app.get("/epcis/submissions/{submission_id}/content")
+async def get_submission_content(
+    submission_id: str,
+    db: Session = Depends(get_db)
+) -> Dict[str, Any]:
+    """Get the raw file content for a submission"""
+    try:
+        submission = db.query(EPCISSubmission).filter_by(id=submission_id).first()
+        if not submission:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Submission {submission_id} not found"
+            )
+        
+        # Get file path and check if it exists
+        file_path = submission.file_path
+        if not os.path.exists(file_path):
+            raise HTTPException(
+                status_code=404,
+                detail=f"File not found at {file_path}"
+            )
+        
+        # Read file content
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                file_content = f.read()
+            
+            return {
+                "success": True,
+                "file_name": submission.file_name,
+                "file_content": file_content
+            }
+        except Exception as e:
+            logger.error(f"Error reading file content: {str(e)}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error reading file content: {str(e)}"
+            )
+            
+    except HTTPException as http_error:
+        raise http_error
+    except Exception as e:
+        logger.exception(f"Error getting submission content: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error retrieving submission content: {str(e)}"
+        )
+
+@app.post("/epcis/submissions/{submission_id}/update")
+async def update_submission_content(
+    submission_id: str,
+    file_content: str = Form(...),
+    db: Session = Depends(get_db)
+) -> Dict[str, Any]:
+    """Update the file content and revalidate a submission"""
+    try:
+        submission = db.query(EPCISSubmission).filter_by(id=submission_id).first()
+        if not submission:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Submission {submission_id} not found"
+            )
+        
+        # Update file content
+        file_path = submission.file_path
+        try:
+            with open(file_path, 'w', encoding='utf-8') as f:
+                f.write(file_content)
+            
+            # Create new submission with updated content
+            file_content_bytes = file_content.encode('utf-8')
+            result = await submission_service.process_submission(
+                file_content=file_content_bytes,
+                file_name=submission.file_name,
+                supplier_id=submission.supplier_id
+            )
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error updating file content: {str(e)}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error updating file content: {str(e)}"
+            )
+            
+    except HTTPException as http_error:
+        raise http_error
+    except Exception as e:
+        logger.exception(f"Error updating submission: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error updating submission: {str(e)}"
+        )
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

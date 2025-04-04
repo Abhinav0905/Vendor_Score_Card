@@ -127,16 +127,50 @@ class EPCISEventValidator:
 
     def _validate_epcs(self, event: Dict, authorized_companies: Set[str], errors: List[Dict]):
         """Validate EPCs in the event"""
+        # First check if we have detailed EPC data with line numbers
+        if 'epcList_detailed' in event:
+            for epc_entry in event['epcList_detailed']:
+                epc = epc_entry.get('value', '')
+                line_number = epc_entry.get('line_number', 0)
+                
+                if not self.gs1_validator.validate_epc_format(epc):
+                    add_error(errors, 'field', 'error',
+                            f"Invalid EPC format: {epc}", line_number=line_number)
+                elif not self.gs1_validator.validate_company_prefix(epc, authorized_companies):
+                    add_error(errors, 'field', 'error',
+                            f"Unauthorized company prefix in EPC: {epc}", line_number=line_number)
+        
+        # Same for childEPCs
+        if 'childEPCs_detailed' in event:
+            for epc_entry in event['childEPCs_detailed']:
+                epc = epc_entry.get('value', '')
+                line_number = epc_entry.get('line_number', 0)
+                
+                if not self.gs1_validator.validate_epc_format(epc):
+                    add_error(errors, 'field', 'error',
+                            f"Invalid EPC format: {epc}", line_number=line_number)
+                elif not self.gs1_validator.validate_company_prefix(epc, authorized_companies):
+                    add_error(errors, 'field', 'error',
+                            f"Unauthorized company prefix in EPC: {epc}", line_number=line_number)
+        
+        # Fallback to the old way (no line numbers) for backward compatibility
         epcs = event.get('epcList', []) + event.get('childEPCs', [])
         
         if isinstance(epcs, list):
             for epc in epcs:
+                # Skip if already processed in the detailed lists
+                if ('epcList_detailed' in event or 'childEPCs_detailed' in event):
+                    continue
+                
+                # Default event line number for backward compatibility
+                line_number = event.get('_line_number', 0)
+                    
                 if not self.gs1_validator.validate_epc_format(epc):
                     add_error(errors, 'field', 'error',
-                            f"Invalid EPC format: {epc}")
+                            f"Invalid EPC format: {epc}", line_number=line_number)
                 elif not self.gs1_validator.validate_company_prefix(epc, authorized_companies):
                     add_error(errors, 'field', 'error',
-                            f"Unauthorized company prefix in EPC: {epc}")
+                            f"Unauthorized company prefix in EPC: {epc}", line_number=line_number)
 
     def _validate_biz_step(self, event: Dict, errors: List[Dict]):
         """Validate business step"""

@@ -122,6 +122,9 @@ export interface SupplierScorecard {
 
 // Dashboard stats interface
 export interface TopSupplier {
+  failure_count: any;
+  success_count: any;
+  error_rate: any;
   id: string;
   name: string;
   submission_count: number;

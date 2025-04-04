@@ -1,11 +1,11 @@
 import json
-import xml.etree.ElementTree as ET
+import lxml.etree as ET  # Replacing standard ElementTree with lxml
 from typing import Dict, List, Set, Tuple, Optional
 from .utils import extract_namespaces, logger
 
 class EPCISParser:
     """Parser for EPCIS XML and JSON documents"""
-
+    
     @staticmethod
     def parse_document(content: bytes, is_xml: bool = True) -> Tuple[Optional[Dict], List[Dict], Set[str], List[Dict]]:
         """Parse an EPCIS document and extract header, events, and company info
@@ -25,7 +25,6 @@ class EPCISParser:
         header = None
         events = []
         companies = set()
-
         try:
             if is_xml:
                 header, events, companies, xml_errors = EPCISParser._parse_xml(content)
@@ -41,9 +40,8 @@ class EPCISParser:
                 'severity': 'error',
                 'message': f"Document parsing error: {str(e)}"
             })
-
         return header, events, companies, errors
-
+    
     @staticmethod
     def _parse_xml(content: bytes) -> Tuple[Optional[Dict], List[Dict], Set[str], List[Dict]]:
         """Parse XML EPCIS document
@@ -58,10 +56,10 @@ class EPCISParser:
         events = []
         companies = set()
         header = None
-
         try:
-            # Check XML well-formedness
-            root = ET.fromstring(content)
+            # Use lxml parser which maintains line numbers
+            parser = ET.XMLParser(remove_blank_text=True)
+            root = ET.fromstring(content, parser)
             
             # Validate EPCIS namespace
             namespaces = extract_namespaces(content.decode('utf-8'))
@@ -71,23 +69,62 @@ class EPCISParser:
                     'severity': 'error',
                     'message': "Missing EPCIS namespace declaration"
                 })
-
+                
             # Extract header
             header_elem = root.find('.//StandardBusinessDocumentHeader')
             if header_elem is not None:
                 header = EPCISParser._xml_to_dict(header_elem)
-
-            # Extract events
+                
+            # Extract events with line number information
             for event_elem in root.findall('.//ObjectEvent') + root.findall('.//AggregationEvent'):
                 try:
+                    # Basic event structure with event-level line number
                     event = EPCISParser._xml_to_dict(event_elem)
-                    events.append(event)
+                    event['_line_number'] = event_elem.sourceline
                     
-                    # Extract company prefixes
-                    for epc in event.get('epcList', []) + event.get('childEPCs', []):
-                        company = epc.split(':')[4].split('.')[0] if len(epc.split(':')) > 4 else None
-                        if company:
-                            companies.add(company)
+                    # Process EPCs with detailed line number tracking
+                    epc_list_elem = event_elem.find('.//epcList')
+                    if epc_list_elem is not None:
+                        epc_elements = []
+                        for epc_elem in epc_list_elem.findall('.//epc'):
+                            if epc_elem.text:
+                                epc_value = epc_elem.text.strip()
+                                # Store each EPC with its own line number
+                                epc_elements.append({
+                                    'value': epc_value,
+                                    'line_number': epc_elem.sourceline
+                                })
+                                
+                                # Extract company prefixes
+                                company = epc_value.split(':')[4].split('.')[0] if len(epc_value.split(':')) > 4 else None
+                                if company:
+                                    companies.add(company)
+                        
+                        # Replace string list with detailed info
+                        event['epcList_detailed'] = epc_elements
+                    
+                    # Similarly process childEPCs
+                    child_epcs_elem = event_elem.find('.//childEPCs')
+                    if child_epcs_elem is not None:
+                        child_epc_elements = []
+                        for epc_elem in child_epcs_elem.findall('.//epc'):
+                            if epc_elem.text:
+                                epc_value = epc_elem.text.strip()
+                                # Store each EPC with its own line number
+                                child_epc_elements.append({
+                                    'value': epc_value,
+                                    'line_number': epc_elem.sourceline
+                                })
+                                
+                                # Extract company prefixes
+                                company = epc_value.split(':')[4].split('.')[0] if len(epc_value.split(':')) > 4 else None
+                                if company:
+                                    companies.add(company)
+                        
+                        # Replace string list with detailed info
+                        event['childEPCs_detailed'] = child_epc_elements
+                    
+                    events.append(event)
                             
                 except Exception as e:
                     errors.append({
@@ -95,7 +132,6 @@ class EPCISParser:
                         'severity': 'error',
                         'message': f"Error parsing event: {str(e)}"
                     })
-
         except ET.ParseError as e:
             errors.append({
                 'type': 'format',
@@ -108,7 +144,6 @@ class EPCISParser:
                 'severity': 'error',
                 'message': f"XML parsing error: {str(e)}"
             })
-
         return header, events, companies, errors
 
     @staticmethod

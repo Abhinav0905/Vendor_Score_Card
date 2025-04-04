@@ -10,12 +10,16 @@ import {
   CircularProgress,
   Alert,
   Collapse,
-  Divider
+  Divider,
+  Button
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
+import EditIcon from '@mui/icons-material/Edit';
+import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
 import { ValidationError } from '../types/supplier';
 import axios from 'axios';
+import XmlEditor from './editor/XmlEditor';
 
 interface FilePreviewPanelProps {
   submissionId: string;
@@ -35,6 +39,7 @@ const FilePreviewPanel: React.FC<FilePreviewPanelProps> = ({ submissionId, fileN
   const [validationResult, setValidationResult] = useState<ValidationResult | null>(null);
   const [expandedErrors, setExpandedErrors] = useState<Record<string, boolean>>({});
   const [isPolling, setIsPolling] = useState(false);
+  const [isEditing, setIsEditing] = useState<boolean>(false);
 
   useEffect(() => {
     let mounted = true;
@@ -134,7 +139,7 @@ const FilePreviewPanel: React.FC<FilePreviewPanelProps> = ({ submissionId, fileN
             severity: error.severity,
             baseMessage: error.message,
             lineNumber: error.line_number || 0,
-            count: error.count,
+            count: 'count' in error ? (error.count as number) : 1,
             examples: []
           };
         }
@@ -169,6 +174,20 @@ const FilePreviewPanel: React.FC<FilePreviewPanelProps> = ({ submissionId, fileN
     return Object.values(errorGroups);
   };
 
+  const handleEditorSave = (success: boolean, newSubmissionId?: string) => {
+    if (success && newSubmissionId) {
+      // If the save was successful and we have a new submission ID,
+      // update our state to show the new validation results
+      setLoading(true);
+      setIsPolling(true);
+      setIsEditing(false);
+    }
+  };
+
+  const toggleEditMode = () => {
+    setIsEditing(!isEditing);
+  };
+
   if (loading) {
     return (
       <Box display="flex" justifyContent="center" p={3}>
@@ -194,6 +213,7 @@ const FilePreviewPanel: React.FC<FilePreviewPanelProps> = ({ submissionId, fileN
   }
 
   const { errors } = validationResult;
+  const hasErrors = errors.some(e => e.severity === 'error');
   const summarizedErrors = summarizeErrors(errors);
 
   // Group summarized errors by type
@@ -213,109 +233,162 @@ const FilePreviewPanel: React.FC<FilePreviewPanelProps> = ({ submissionId, fileN
   });
 
   return (
-    <Box sx={{ mt: 2 }}>
-      <Typography variant="h6" gutterBottom>
-        Validation Results for {fileName}
-      </Typography>
-
-      {errors.length === 0 ? (
-        <Alert severity="success">
-          No validation errors found in the file.
-        </Alert>
+    <Box sx={{ mt: 2, height: '100%' }}>
+      <Box sx={{ 
+        display: 'flex', 
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        mb: 2
+      }}>
+        <Typography variant="h6">
+          Validation Results for {fileName}
+        </Typography>
+        
+        {/* Show edit button only if there are errors to fix */}
+        {hasErrors && (
+          <Button 
+            variant="contained" 
+            color="primary"
+            startIcon={isEditing ? <ErrorOutlineIcon /> : <EditIcon />}
+            onClick={toggleEditMode}
+          >
+            {isEditing ? 'View Errors' : 'Edit File'}
+          </Button>
+        )}
+      </Box>
+      
+      {isEditing ? (
+        /* Show the XmlEditor when in editing mode */
+        <Box sx={{ height: 'calc(100% - 50px)' }}>
+          <XmlEditor 
+            submissionId={submissionId} 
+            fileName={fileName}
+            validationErrors={errors}
+            onSave={handleEditorSave}
+          />
+        </Box>
       ) : (
+        /* Show validation results when not in editing mode */
         <>
-          <Typography variant="body2" color="text.secondary" gutterBottom>
-            Found {errors.filter(e => e.severity === 'error').length} errors and {errors.filter(e => e.severity === 'warning').length} warnings
-          </Typography>
-
-          {errorTypes.map(type => {
-            const typeErrors = errorsByType[type];
-            const errorCount = errors.filter(e => e.type === type && e.severity === 'error').length;
-            const warningCount = errors.filter(e => e.type === type && e.severity === 'warning').length;
-
-            return (
-              <Paper key={type} sx={{ mb: 2, overflow: 'hidden' }}>
-                <Box sx={{ bgcolor: 'primary.main', p: 1, color: 'white' }}>
-                  <Typography variant="subtitle1">
-                    {getErrorTypeLabel(type)} ({errorCount > 0 ? `${errorCount} errors` : ''}{errorCount > 0 && warningCount > 0 ? ', ' : ''}{warningCount > 0 ? `${warningCount} warnings` : ''})
-                  </Typography>
-                </Box>
-                <List dense>
-                  {typeErrors.map((error, index) => (
-                    <React.Fragment key={index}>
-                      <ListItem
-                        sx={{ cursor: 'pointer' }}
-                        onClick={() => toggleErrorExpansion(`${type}-${index}`)}
-                      >
-                        <ListItemText
-                          primary={
-                            <Box display="flex" alignItems="center" gap={1}>
-                              <Chip
-                                label={error.severity}
-                                color={getSeverityColor(error.severity)}
-                                size="small"
-                              />
-                              <Typography variant="body2" sx={{ flex: 1 }}>
-                                {error.baseMessage}
-                                <Typography component="span" color="text.secondary">
-                                  ({error.count} items)
-                                </Typography>
-                                {error.lineNumber > 0 && (
-                                  <Typography component="span" color="text.secondary">
-                                    {" "}(Line {error.lineNumber})
+          {errors.length === 0 ? (
+            <Alert severity="success">
+              No validation errors found in the file.
+            </Alert>
+          ) : (
+            <>
+              <Typography variant="body2" color="text.secondary" gutterBottom>
+                Found {errors.filter(e => e.severity === 'error').length} errors and {errors.filter(e => e.severity === 'warning').length} warnings
+              </Typography>
+              
+              {errorTypes.map(type => {
+                const typeErrors = errorsByType[type];
+                const errorCount = errors.filter(e => e.type === type && e.severity === 'error').length;
+                const warningCount = errors.filter(e => e.type === type && e.severity === 'warning').length;
+                
+                return (
+                  <Paper key={type} sx={{ mb: 2, overflow: 'hidden' }}>
+                    <Box sx={{ bgcolor: 'primary.main', p: 1, color: 'white' }}>
+                      <Typography variant="subtitle1">
+                        {getErrorTypeLabel(type)} ({errorCount > 0 ? `${errorCount} errors` : ''}{errorCount > 0 && warningCount > 0 ? ', ' : ''}{warningCount > 0 ? `${warningCount} warnings` : ''})
+                      </Typography>
+                    </Box>
+                    
+                    <List dense>
+                      {typeErrors.map((error, index) => (
+                        <React.Fragment key={index}>
+                          <ListItem
+                            sx={{ cursor: 'pointer' }}
+                            onClick={() => toggleErrorExpansion(`${type}-${index}`)}
+                          >
+                            <ListItemText
+                              primary={
+                                <Box display="flex" alignItems="center" gap={1}>
+                                  <Chip
+                                    label={error.severity}
+                                    color={getSeverityColor(error.severity)}
+                                    size="small"
+                                  />
+                                  <Typography variant="body2" sx={{ flex: 1 }}>
+                                    {error.baseMessage}
+                                    <Typography component="span" color="text.secondary">
+                                      ({error.count} items)
+                                    </Typography>
+                                    {error.lineNumber > 0 && (
+                                      <Typography component="span" color="text.secondary">
+                                        {" "}(Line {error.lineNumber})
+                                      </Typography>
+                                    )}
                                   </Typography>
-                                )}
+                                  {expandedErrors[`${type}-${index}`] ? (
+                                    <ExpandLessIcon fontSize="small" />
+                                  ) : (
+                                    <ExpandMoreIcon fontSize="small" />
+                                  )}
+                                </Box>
+                              }
+                            />
+                          </ListItem>
+                          
+                          <Collapse in={expandedErrors[`${type}-${index}`]}>
+                            <Box sx={{ p: 2, bgcolor: 'background.default' }}>
+                              <Typography variant="body2" gutterBottom>
+                                Affects {error.count} items
                               </Typography>
-                              {expandedErrors[`${type}-${index}`] ? (
-                                <ExpandLessIcon fontSize="small" />
-                              ) : (
-                                <ExpandMoreIcon fontSize="small" />
+                              
+                              {error.examples.length > 0 && (
+                                <>
+                                  <Typography variant="body2" gutterBottom>
+                                    Examples:
+                                  </Typography>
+                                  
+                                  {error.examples.map((example, i) => (
+                                    <Typography
+                                      key={i}
+                                      variant="body2"
+                                      component="pre"
+                                      sx={{
+                                        whiteSpace: 'pre-wrap',
+                                        fontFamily: 'monospace',
+                                        fontSize: '0.875rem',
+                                        ml: 2
+                                      }}
+                                    >
+                                      {example}
+                                    </Typography>
+                                  ))}
+                                  
+                                  {error.count > error.examples.length && (
+                                    <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                                      ...and {error.count - error.examples.length} more
+                                    </Typography>
+                                  )}
+                                </>
+                              )}
+                              
+                              {/* Add a fix button that switches to edit mode */}
+                              {error.severity === 'error' && (
+                                <Button
+                                  variant="outlined"
+                                  size="small"
+                                  startIcon={<EditIcon />}
+                                  onClick={toggleEditMode}
+                                  sx={{ mt: 2 }}
+                                >
+                                  Fix this issue
+                                </Button>
                               )}
                             </Box>
-                          }
-                        />
-                      </ListItem>
-                      <Collapse in={expandedErrors[`${type}-${index}`]}>
-                        <Box sx={{ p: 2, bgcolor: 'background.default' }}>
-                          <Typography variant="body2" gutterBottom>
-                            Affects {error.count} items
-                          </Typography>
-                          {error.examples.length > 0 && (
-                            <>
-                              <Typography variant="body2" gutterBottom>
-                                Examples:
-                              </Typography>
-                              {error.examples.map((example, i) => (
-                                <Typography
-                                  key={i}
-                                  variant="body2"
-                                  component="pre"
-                                  sx={{
-                                    whiteSpace: 'pre-wrap',
-                                    fontFamily: 'monospace',
-                                    fontSize: '0.875rem',
-                                    ml: 2
-                                  }}
-                                >
-                                  {example}
-                                </Typography>
-                              ))}
-                              {error.count > error.examples.length && (
-                                <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                                  ...and {error.count - error.examples.length} more
-                                </Typography>
-                              )}
-                            </>
-                          )}
-                        </Box>
-                      </Collapse>
-                      <Divider />
-                    </React.Fragment>
-                  ))}
-                </List>
-              </Paper>
-            );
-          })}
+                          </Collapse>
+                          
+                          <Divider />
+                        </React.Fragment>
+                      ))}
+                    </List>
+                  </Paper>
+                );
+              })}
+            </>
+          )}
         </>
       )}
     </Box>
