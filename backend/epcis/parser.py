@@ -33,6 +33,14 @@ class EPCISParser:
                 header, events, companies, json_errors = EPCISParser._parse_json(content)
                 errors.extend(json_errors)
                 
+            # Additional header processing to extract instance identifier
+            if header:
+                # Extract unique instance identifier if available
+                doc_id = header.get('DocumentIdentification', {})
+                instance_id = doc_id.get('InstanceIdentifier')
+                if instance_id:
+                    header['instance_identifier'] = instance_id
+                    logger.info(f"Found instance identifier: {instance_id}")
         except Exception as e:
             logger.exception(f"Document parsing error: {e}")
             errors.append({

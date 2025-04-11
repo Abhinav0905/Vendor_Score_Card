@@ -26,6 +26,7 @@ class EPCISSubmission(Base):
     file_path = Column(String, nullable=False)  # Storage location
     file_size = Column(Integer, nullable=True)
     file_hash = Column(String, nullable=True)  # For deduplication
+    instance_identifier = Column(String, nullable=True)  # Unique document instance identifier
     
     # Processing status
     status = Column(String, nullable=False)

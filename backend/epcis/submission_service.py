@@ -189,14 +189,42 @@ class SubmissionService:
             # Generate file hash for deduplication
             file_hash = hashlib.sha256(file_content).hexdigest()
             
-            # Check for duplicate submission
-            existing = db.query(EPCISSubmission).filter_by(
-                supplier_id=supplier.id,  # Use the normalized supplier ID
-                file_hash=file_hash
-            ).first()
+            # Determine file type
+            is_xml = file_name.lower().endswith('.xml')
+            
+            # Parse document to get instance identifier for more reliable duplicate detection
+            instance_identifier = None
+            if is_xml:
+                try:
+                    # Parse document to extract the header with instance identifier
+                    header, _, _, _ = self.validator.parser.parse_document(file_content, is_xml=True)
+                    if header and 'instance_identifier' in header:
+                        instance_identifier = header['instance_identifier']
+                        logger.info(f"Extracted instance identifier: {instance_identifier}")
+                except Exception as e:
+                    logger.warning(f"Failed to extract instance identifier: {str(e)}")
+            
+            # Check for duplicate submission primarily by instance identifier if available
+            existing = None
+            if instance_identifier:
+                existing = db.query(EPCISSubmission).filter_by(
+                    instance_identifier=instance_identifier
+                ).first()
+                
+                if existing:
+                    logger.info(f"Duplicate submission detected by instance identifier: {instance_identifier}")
+            
+            # Fallback to file hash check if no instance identifier or no match found
+            if not existing:
+                existing = db.query(EPCISSubmission).filter_by(
+                    supplier_id=supplier.id,
+                    file_hash=file_hash
+                ).first()
+                
+                if existing:
+                    logger.info(f"Duplicate submission detected by file hash for: {file_name}")
             
             if existing:
-                logger.info(f"Duplicate submission detected for file: {file_name}")
                 return {
                     "success": False,
                     "message": "Duplicate submission detected",
@@ -238,6 +266,7 @@ class SubmissionService:
                 file_path=file_location,
                 file_size=len(file_content),
                 file_hash=file_hash,
+                instance_identifier=instance_identifier,  # Store the unique document identifier if available
                 status=FileStatus.PROCESSING.value,
                 submission_date=datetime.utcnow(),
                 processing_date=datetime.utcnow()
