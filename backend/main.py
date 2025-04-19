@@ -162,14 +162,43 @@ async def upload_epcis_file(
             supplier_id=supplier_id
         )
         
-        # Set the appropriate status code from the result
-        if 'status_code' in result:
-            if result['status_code'] == 409:  # Duplicate submission
-                response.status_code = status.HTTP_409_CONFLICT
-            else:
-                response.status_code = result['status_code']
+        # Handle None result
+        if result is None:
+            raise HTTPException(
+                status_code=500,
+                detail="File processing failed - no result returned from submission service"
+            )
         
-        return result
+        # Set the appropriate status code and enhance duplicate message
+        if isinstance(result, dict):
+            if 'status_code' in result:
+                response.status_code = result['status_code']
+                if result['status_code'] == 409:  # Duplicate submission
+                    # Get the existing submission details
+                    db = SessionLocal()
+                    try:
+                        existing = db.query(EPCISSubmission).filter_by(id=result.get('submission_id')).first()
+                        if existing:
+                            result['detail'] = {
+                                'message': f"This document has already been submitted",
+                                'duplicate_type': result.get('duplicate_type', 'unknown'),
+                                'original_submission': {
+                                    'id': existing.id,
+                                    'file_name': existing.file_name,
+                                    'submission_date': existing.submission_date.isoformat(),
+                                    'instance_identifier': existing.instance_identifier,
+                                    'status': existing.status
+                                }
+                            }
+                    finally:
+                        db.close()
+                return result
+            return result
+        else:
+            raise HTTPException(
+                status_code=500,
+                detail="Invalid result format returned from submission service"
+            )
         
     except HTTPException as http_error:
         raise http_error

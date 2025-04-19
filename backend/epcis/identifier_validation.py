@@ -6,7 +6,10 @@ class GS1IdentifierValidator:
     
     # GS1 identifier patterns
     EPC_PATTERNS = {
-        'sgtin': r'^urn:epc:id:sgtin:\d+\.[0-9]+\.*[0-9]*$',
+        # Updated SGTIN pattern to properly validate SGTIN-198 format:
+        # <CompanyPrefix>.<ItemReference>.<SerialNumber>
+        # Where SerialNumber must be 1-20 alphanumeric characters
+        'sgtin': r'^urn:epc:id:sgtin:(\d+)\.(\d+)\.([A-Za-z0-9]{1,20})$',
         'sscc': r'^urn:epc:id:sscc:\d+\.[0-9]+$',
         'sgln': r'^urn:epc:id:sgln:\d+\.[0-9]+\.*[0-9]*$',
         'grai': r'^urn:epc:id:grai:\d+\.[0-9]+\.*[0-9]*$',

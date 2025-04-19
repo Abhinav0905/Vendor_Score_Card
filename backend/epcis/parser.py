@@ -2,6 +2,7 @@ import json
 import lxml.etree as ET  # Replacing standard ElementTree with lxml
 from typing import Dict, List, Set, Tuple, Optional
 from .utils import extract_namespaces, logger
+from .utils import validate_dates_order
 
 class EPCISParser:
     """Parser for EPCIS XML and JSON documents"""
@@ -88,7 +89,15 @@ class EPCISParser:
                 try:
                     # Basic event structure with event-level line number
                     event = EPCISParser._xml_to_dict(event_elem)
+                    # assign eventType for validator
+                    event['eventType'] = event_elem.tag
                     event['_line_number'] = event_elem.sourceline
+                    EPCISParser._normalize_event_fields(event)
+                    
+                    # date-order validation
+                    date_errors = validate_dates_order(event)
+                    if date_errors:
+                        errors.extend(date_errors)
                     
                     # Process EPCs with detailed line number tracking
                     epc_list_elem = event_elem.find('.//epcList')
@@ -186,6 +195,15 @@ class EPCISParser:
             # Extract events
             for event in data.get('eventList', []):
                 try:
+                    # assign eventType for validator
+                    event['eventType'] = event.get('type')
+                    EPCISParser._normalize_event_fields(event)
+                    
+                    # date-order validation
+                    date_errors = validate_dates_order(event)
+                    if date_errors:
+                        errors.extend(date_errors)
+                    
                     events.append(event)
                     
                     # Extract company prefixes
@@ -215,6 +233,20 @@ class EPCISParser:
             })
 
         return header, events, companies, errors
+
+    @staticmethod
+    def _normalize_event_fields(event: Dict):
+        """Rename event fields to validator expected names"""
+        mapping = {
+            'type': 'eventType',
+            'time': 'eventTime',
+            'timezone_offset': 'eventTimeZoneOffset',
+            'epcs': 'epcList',
+            'biz_step': 'bizStep'
+        }
+        for old, new in mapping.items():
+            if old in event:
+                event[new] = event.pop(old)
 
     @staticmethod
     def _xml_to_dict(element: ET.Element) -> Dict:

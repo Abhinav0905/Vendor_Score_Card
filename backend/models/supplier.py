@@ -5,38 +5,20 @@ from datetime import datetime
 from .base import Base
 
 class Supplier(Base):
-    """Supplier model with scorecard metrics"""
-    __tablename__ = "suppliers"
+    """Model representing a supplier/vendor"""
+    __tablename__ = 'suppliers'
     
-    id = Column(String, primary_key=True)
-    name = Column(String, nullable=False, unique=True)
-    status = Column(String, nullable=True, default='active')  # active, inactive, suspended
-    
-    # Scorecard metrics
-    data_accuracy = Column(Float, default=100.0)  # Percentage
-    error_rate = Column(Float, default=0.0)  # Percentage
-    compliance_score = Column(Float, default=100.0)  # Percentage
-    response_time = Column(Integer, default=0)  # In hours
-    
-    # Additional details
-    contact_name = Column(String, nullable=True)
-    contact_email = Column(String, nullable=True)
-    contact_phone = Column(String, nullable=True)
-    address = Column(String, nullable=True)
-    is_active = Column(Boolean, default=True)
-    
-    # Timestamps
+    id = Column(String(100), primary_key=True)
+    name = Column(String(255), nullable=False)
+    code = Column(String(50), unique=True)
+    contact_email = Column(String(255))
     created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    last_submission_date = Column(DateTime, nullable=True)
     
-    # Relationships
-    submissions = relationship("EPCISSubmission", 
-                             primaryjoin="Supplier.id == foreign(EPCISSubmission.supplier_id)",
-                             backref="supplier")
+    # Fix the relationship - remove the backref as it's already defined in EPCISSubmission
+    submissions = relationship("EPCISSubmission", back_populates="supplier")
     
     def __repr__(self):
-        return f"<Supplier(id='{self.id}', name='{self.name}', status='{self.status}')>"
+        return f"<Supplier(id='{self.id}', name='{self.name}')>"
 
 class PerformanceTrend(Base):
     """Supplier performance trend model for tracking metrics over time"""

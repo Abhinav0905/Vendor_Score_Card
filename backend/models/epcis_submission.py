@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, Boolean, DateTime, ForeignKey, JSON, Text
+from sqlalchemy import Column, String, Integer, Boolean, DateTime, ForeignKey, JSON, Text, Enum
 from sqlalchemy.orm import relationship
 from datetime import datetime
 import enum
@@ -13,24 +13,25 @@ class FileStatus(enum.Enum):
     FAILED = "failed"
     HELD = "held"
     REPROCESSED = "reprocessed"
+    ARCHIVED = "archived"
 
 class EPCISSubmission(Base):
     """Master EPCIS file submission tracking model"""
     __tablename__ = "epcis_submissions"
     
-    id = Column(String, primary_key=True)
-    supplier_id = Column(String, nullable=False)
+    id = Column(String(36), primary_key=True)
+    supplier_id = Column(String(100), ForeignKey('suppliers.id'), nullable=False)
     
     # File information
-    file_name = Column(String, nullable=False)
-    file_path = Column(String, nullable=False)  # Storage location
-    file_size = Column(Integer, nullable=True)
-    file_hash = Column(String, nullable=True)  # For deduplication
-    instance_identifier = Column(String, nullable=True)  # Unique document instance identifier
+    file_name = Column(String(255), nullable=False)
+    file_path = Column(String(500), nullable=False)  # Storage location
+    file_size = Column(Integer, nullable=False)
+    file_hash = Column(String(64), nullable=False)  # For deduplication
+    instance_identifier = Column(String(255), nullable=True)  # Unique document instance identifier
     
     # Processing status
-    status = Column(String, nullable=False)
-    is_valid = Column(Boolean, default=False)
+    status = Column(String(20), nullable=False, default=FileStatus.RECEIVED.value)
+    is_valid = Column(Boolean, nullable=True)
     error_count = Column(Integer, default=0)
     warning_count = Column(Integer, default=0)
     
@@ -44,14 +45,15 @@ class EPCISSubmission(Base):
     completion_date = Column(DateTime, nullable=True)
     
     # Submitter information
-    submitter_id = Column(String, nullable=True)
+    submitter_id = Column(String(36), nullable=True)
     
-    # Relationships
-    errors = relationship("ValidationError", back_populates="submission", cascade="all, delete-orphan")
+    # Relationships - ensure we have back_populates matching the Supplier model
+    supplier = relationship("Supplier", back_populates="submissions")
+    validation_errors = relationship("ValidationError", back_populates="submission", cascade="all, delete-orphan")
     
     # References to specialized submissions
-    valid_submission_id = Column(String, nullable=True)
-    errored_submission_id = Column(String, nullable=True)
+    valid_submission_id = Column(String(36), nullable=True)
+    errored_submission_id = Column(String(36), nullable=True)
     
     def __repr__(self):
         return f"<EPCISSubmission(id='{self.id}', file_name='{self.file_name}', status='{self.status}')>"
@@ -134,7 +136,7 @@ class ValidationError(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     
     # Relationships
-    submission = relationship("EPCISSubmission", back_populates="errors")
+    submission = relationship("EPCISSubmission", back_populates="validation_errors")
     
     def __repr__(self):
         return f"<ValidationError(id='{self.id}', type='{self.error_type}', severity='{self.severity}', resolved={self.is_resolved})>"
