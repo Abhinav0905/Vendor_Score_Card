@@ -1,4 +1,5 @@
 from datetime import datetime
+import re
 from typing import Dict, List, Set
 from .utils import validate_date_format, add_error, validate_dates_order
 from .identifier_validation import GS1IdentifierValidator
@@ -273,7 +274,6 @@ class EPCISEventValidator:
     @staticmethod
     def _is_valid_timezone(tz: str) -> bool:
         """Validate timezone offset format"""
-        import re
         # Allow offsets in 15-minute increments
         if not re.match(r'^[+-]\d{2}:\d{2}$', tz):
             return False
