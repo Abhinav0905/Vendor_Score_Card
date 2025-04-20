@@ -2,8 +2,8 @@ import os
 import uuid
 import logging
 import hashlib
-import traceback
 import re
+import json
 from datetime import datetime
 from typing import Dict, Any, Optional, Tuple
 from models.epcis_submission import EPCISSubmission, ValidationError, FileStatus, ValidEPCISSubmission, ErroredEPCISSubmission
@@ -171,7 +171,6 @@ class SubmissionService:
         
         Returns True if valid, otherwise False.
         """
-        import re
         pattern = r"^urn:epc:id:sgtin:(\d+)\.(\d+)\.([A-Za-z0-9]{1,20})$"
         return bool(re.match(pattern, sgtin_str))
     
@@ -181,15 +180,10 @@ class SubmissionService:
         try:
             content_str = file_content.decode('utf-8')
             if is_xml:
-                # Simple extraction using string search for XML files
-                import re
-                # Match patterns like urn:epc:id:sgtin:...
+                # Extraction using regex from top-level import
                 matches = re.findall(r'urn:epc:id:sgtin:[^<"\s]+', content_str)
                 sgtins.extend(matches)
             else:
-                # For JSON, do basic string search
-                import re
-                # Match patterns like "urn:epc:id:sgtin:..."
                 matches = re.findall(r'"urn:epc:id:sgtin:[^"]+', content_str)
                 sgtins = [m.strip('"') for m in matches]
             
@@ -214,7 +208,6 @@ class SubmissionService:
             
             # For JSON files (if you support JSON format)
             elif '"InstanceIdentifier":' in content_str:
-                import json
                 data = json.loads(content_str)
                 if 'DocumentIdentification' in data:
                     return data['DocumentIdentification'].get('InstanceIdentifier')

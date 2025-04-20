@@ -94,6 +94,11 @@ class EPCISParser:
                     event['_line_number'] = event_elem.sourceline
                     EPCISParser._normalize_event_fields(event)
                     
+                    # Add recordTime from XML for date-order validation
+                    rec_elem = event_elem.find('.//recordTime')
+                    if rec_elem is not None and rec_elem.text:
+                        event['recordTime'] = rec_elem.text.strip()
+                    
                     # date-order validation
                     date_errors = validate_dates_order(event)
                     if date_errors:
@@ -198,6 +203,13 @@ class EPCISParser:
                     # assign eventType for validator
                     event['eventType'] = event.get('type')
                     EPCISParser._normalize_event_fields(event)
+                    
+                    # Normalize JSON eventTime and recordTime for consistent parsing
+                    raw_et = event.get('eventTime')
+                    if raw_et and raw_et.endswith('Z'):
+                        event['eventTime'] = raw_et.replace('Z', '+00:00')
+                    if 'recordTime' in event and event['recordTime'].endswith('Z'):
+                        event['recordTime'] = event['recordTime'].replace('Z', '+00:00')
                     
                     # date-order validation
                     date_errors = validate_dates_order(event)

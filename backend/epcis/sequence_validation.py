@@ -1,7 +1,7 @@
 from datetime import datetime
 from collections import defaultdict
 from typing import Dict, List, Set, Any
-from .utils import add_error
+from .utils import add_error, validate_dates_order
 
 class EPCISSequenceValidator:
     """Validator for EPCIS event sequences according to DSCSA rules"""
@@ -117,13 +117,23 @@ class EPCISSequenceValidator:
             event_dt = datetime.fromisoformat(event['eventTime'].replace('Z', '+00:00'))
             biz_step = event.get('bizStep', '').split(':')[-1]
             epcs = event.get('epcList', []) + event.get('childEPCs', [])
-            
-            # Skip events without bizStep
-            if not biz_step:
-                return
-            
+
+            # date-order validation using recordTime
+            if 'recordTime' in event:
+                date_errors = validate_dates_order(event)
+                if date_errors:
+                    errors.extend(date_errors)
+
             # Validate each EPC's sequence
             for epc in epcs:
+                # enforce chronological order per EPC
+                prev_times = self.event_times.get(epc, {})
+                if prev_times:
+                    max_prev = max(prev_times.values())
+                    if event_dt < max_prev:
+                        add_error(errors, 'sequence', 'error',
+                                  f"Event time {event_dt.isoformat()} for {biz_step} is before previous event time {max_prev.isoformat()} for {epc}")
+                
                 # Check if item was commissioned
                 if epc.startswith('urn:epc:id:sgtin:'):
                     if epc not in self.commissioned_items['SGTIN']:

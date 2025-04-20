@@ -1,4 +1,4 @@
-from typing import Dict, List, Set, Optional
+from typing import Dict
 from .parser import EPCISParser
 from .event_validation import EPCISEventValidator
 from .sequence_validation import EPCISSequenceValidator

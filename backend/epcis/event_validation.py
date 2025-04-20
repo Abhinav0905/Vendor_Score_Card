@@ -1,6 +1,6 @@
 from datetime import datetime
-from typing import Dict, List, Set, Optional
-from .utils import validate_date_format, validate_dates_order, add_error, logger
+from typing import Dict, List, Set
+from .utils import validate_date_format, add_error, validate_dates_order
 from .identifier_validation import GS1IdentifierValidator
 
 class EPCISEventValidator:
@@ -60,6 +60,11 @@ class EPCISEventValidator:
             List of validation errors
         """
         errors = []
+        
+        # Date-order validation for direct event inputs
+        date_errors = validate_dates_order(event)
+        if date_errors:
+            errors.extend(date_errors)
         
         # Basic structure validation
         if not event:
@@ -211,8 +216,7 @@ class EPCISEventValidator:
             
             required_fields = {
                 'lotNumber': str,
-                'itemExpirationDate': str,
-                'productionDate': str
+                'itemExpirationDate': str
             }
             
             for field, field_type in required_fields.items():
@@ -270,4 +274,8 @@ class EPCISEventValidator:
     def _is_valid_timezone(tz: str) -> bool:
         """Validate timezone offset format"""
         import re
-        return bool(re.match(r'^[+-]\d{2}:00$', tz))
+        # Allow offsets in 15-minute increments
+        if not re.match(r'^[+-]\d{2}:\d{2}$', tz):
+            return False
+        hours = int(tz[1:3]); minutes = int(tz[4:6])
+        return 0 <= hours <= 14 and minutes in {0, 15, 30, 45}
