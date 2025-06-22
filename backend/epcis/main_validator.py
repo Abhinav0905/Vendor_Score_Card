@@ -4,6 +4,7 @@ from .event_validation import EPCISEventValidator
 from .sequence_validation import EPCISSequenceValidator
 from .utils import logger
 
+
 class EPCISValidator:
     """Main validator class that orchestrates EPCIS document validation"""
     

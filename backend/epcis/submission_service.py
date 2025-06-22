@@ -6,11 +6,11 @@ import re
 import json
 from datetime import datetime
 from typing import Dict, Any, Optional, Tuple
-from models.epcis_submission import EPCISSubmission, ValidationError, FileStatus, ValidEPCISSubmission, ErroredEPCISSubmission
-from models.supplier import Supplier
-from models.base import SessionLocal
+from backend.models.epcis_submission import EPCISSubmission, ValidationError, FileStatus, ValidEPCISSubmission, ErroredEPCISSubmission
+from backend.models.supplier import Supplier
+from backend.models.base import SessionLocal
 from . import EPCISValidator
-from .storage_handlers import LocalStorageHandler, S3StorageHandler
+from  . storage_handlers import LocalStorageHandler, S3StorageHandler
 import xml.etree.ElementTree as ET
 
 

@@ -40,6 +40,7 @@ temp/
 
 # Python specific
 venv/
+.venv/
 __pycache__/
 *.pyc
 *.pyo
@@ -92,3 +93,9 @@ ehthumbs.db
 *.xml
 *.sublime-project
 *.sublime-workspace
+
+# Ignore Gmail credentials and token
+/email_agent/config/gmail_credentials.json
+/email_agent/config/gmail_credentails.json
+/email_agent/config/token.pickle
+/email_agent/config/gmail_token.pickle

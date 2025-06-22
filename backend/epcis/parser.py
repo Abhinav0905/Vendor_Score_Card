@@ -1,8 +1,9 @@
 import json
-import lxml.etree as ET  # Replacing standard ElementTree with lxml
+import lxml.etree as ET
 from typing import Dict, List, Set, Tuple, Optional
 from .utils import extract_namespaces, logger
 from .utils import validate_dates_order
+
 
 class EPCISParser:
     """Parser for EPCIS XML and JSON documents"""
@@ -99,10 +100,17 @@ class EPCISParser:
                     if rec_elem is not None and rec_elem.text:
                         event['recordTime'] = rec_elem.text.strip()
                     
-                    # date-order validation
-                    date_errors = validate_dates_order(event)
-                    if date_errors:
-                        errors.extend(date_errors)
+                    # date-order validation - only if both dates are present
+                    if 'eventTime' in event and 'recordTime' in event:
+                        date_errors = []
+                        if not validate_dates_order(event['eventTime'], event['recordTime']):
+                            date_errors.append({
+                                'type': 'sequence',
+                                'severity': 'error',
+                                'message': f"Invalid date order: eventTime {event['eventTime']} is not before recordTime {event['recordTime']}"
+                            })
+                        if date_errors:
+                            errors.extend(date_errors)
                     
                     # Process EPCs with detailed line number tracking
                     epc_list_elem = event_elem.find('.//epcList')

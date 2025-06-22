@@ -8,12 +8,12 @@ from fastapi import FastAPI, HTTPException, BackgroundTasks, File, UploadFile, F
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-from models.base import SessionLocal, engine, Base
-from models.supplier import Supplier
-from models.epcis_submission import EPCISSubmission, ValidationError, FileStatus, ValidEPCISSubmission, ErroredEPCISSubmission
-from epcis.file_watcher import EPCISFileWatcher
-from epcis.submission_service import SubmissionService
-from epcis import EPCISValidator  # Updated import path
+from .models.base import SessionLocal, engine, Base
+from .models.supplier import Supplier
+from .models.epcis_submission import EPCISSubmission, ValidationError, FileStatus, ValidEPCISSubmission, ErroredEPCISSubmission
+from .epcis.file_watcher import EPCISFileWatcher
+from .epcis.submission_service import SubmissionService
+from .epcis import EPCISValidator  # Updated import path
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

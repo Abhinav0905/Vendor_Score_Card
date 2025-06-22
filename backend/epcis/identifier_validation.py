@@ -1,5 +1,6 @@
 import re
-from typing import Dict, Optional
+from typing import Optional
+
 
 class GS1IdentifierValidator:
     """Validator for GS1 identifiers (SGTIN, SSCC, SGLN, etc.)"""

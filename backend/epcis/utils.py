@@ -5,6 +5,7 @@ from typing import Dict, Any, List, Optional
 
 logger = logging.getLogger("epcis.utils")
 
+
 class ErrorAggregator:
     def __init__(self):
         self.error_groups = defaultdict(list)
