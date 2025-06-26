@@ -6,15 +6,16 @@ from pathlib import Path
 import sys
 from typing import List, Dict, Any
 from datetime import datetime
+import asyncio
 
 from langchain.schema import HumanMessage
 from langchain_openai import ChatOpenAI
 from langgraph.graph import StateGraph, END
 
-from models.email_models import EmailData, AgentState, ValidationError, ActionPlan
-from config.settings import Settings
-from services.gmail_service import GmailService
-from services.database_service import DatabaseService
+from email_agent.models.email_models import EmailData, AgentState, ValidationError, ActionPlan
+from email_agent.config.settings import Settings
+from email_agent.services.gmail_service import GmailService
+from email_agent.services.database_service import DatabaseService
 from email_agent.agents.email_processor import EmailProcessorAgent
 from email_agent.agents.epcis_analyzer import EPCISAnalyzerAgent
 from email_agent.agents.vendor_communicator import VendorCommunicatorAgent
@@ -57,24 +58,14 @@ class OrchestratorAgent:
         
         # Add nodes
         workflow.add_node("fetch_emails", self._fetch_emails)
-        workflow.add_node("process_email", self._process_single_email)
-        workflow.add_node("extract_data", self._extract_data)
-        workflow.add_node("validate_epcis", self._validate_epcis)
-        workflow.add_node("generate_action_plan", self._generate_action_plan)
-        workflow.add_node("send_response", self._send_response)
-        workflow.add_node("update_status", self._update_status)
+        workflow.add_node("process_all_emails", self._process_all_emails)
         
         # Set entry point
         workflow.set_entry_point("fetch_emails")
         
         # Add edges
-        workflow.add_edge("fetch_emails", "process_email")
-        workflow.add_edge("process_email", "extract_data")
-        workflow.add_edge("extract_data", "validate_epcis")
-        workflow.add_edge("validate_epcis", "generate_action_plan")
-        workflow.add_edge("generate_action_plan", "send_response")
-        workflow.add_edge("send_response", "update_status")
-        workflow.add_edge("update_status", END)
+        workflow.add_edge("fetch_emails", "process_all_emails")
+        workflow.add_edge("process_all_emails", END)
         
         return workflow.compile()
     
@@ -116,74 +107,116 @@ class OrchestratorAgent:
             }
     
     async def _fetch_emails(self, state: AgentState) -> AgentState:
-        """Fetch new error emails from Gmail"""
+        """Fetch and parse new error emails from Gmail"""
         logger.info("Fetching new error emails...")
         
         try:
-            emails = await self.gmail_service.get_error_emails(
+            raw_emails = await self.gmail_service.get_error_emails(
                 max_results=self.settings.MAX_EMAILS_PER_RUN
             )
             
-            logger.info(f"Found {len(emails)} error emails to process")
-            state.emails = emails
+            if not raw_emails:
+                logger.info("No new error emails found.")
+                state.emails = []
+                return state
+
+            logger.info(f"Found {len(raw_emails)} raw emails. Extracting content...")
+
+            # Extract content from all emails concurrently
+            extracted_email_tasks = [
+                self.gmail_service.extract_email_content(email)
+                for email in raw_emails
+            ]
+            extracted_email_data = await asyncio.gather(*extracted_email_tasks)
+
+            # Create EmailData models from the extracted content
+            email_models = []
+            for email_data in extracted_email_data:
+                if "error" not in email_data:
+                    try:
+                        email_models.append(EmailData(**email_data))
+                    except Exception as e:
+                        logger.error(f"Pydantic validation failed for email {email_data.get('message_id')}: {e}")
+                else:
+                    logger.warning(f"Skipping email due to extraction error: {email_data['error']}")
+
+            logger.info(f"Successfully extracted and validated {len(email_models)} emails.")
+            state.emails = email_models
             
         except Exception as e:
-            logger.error(f"Failed to fetch emails: {str(e)}")
+            logger.error(f"Failed to fetch or process emails: {str(e)}", exc_info=True)
             state.emails = []
         
         return state
     
-    async def _process_single_email(self, state: AgentState) -> AgentState:
-        """Process each email individually"""
+    async def _process_all_emails(self, state: AgentState) -> AgentState:
+        """Process all emails from the initial state."""
+        if not state.emails:
+            logger.info("No emails to process.")
+            state.processed_count = 0
+            state.failed_count = 0
+            return state
+
         processed_count = 0
         failed_count = 0
-        
-        for email in state.emails:
+
+        for email_data in state.emails:
             try:
-                logger.info(f"Processing email: {email.subject}")
-                state.current_email = email
+                logger.info(f"--- Starting processing for email: {email_data.subject} ---")
                 
-                # Extract data from email
-                state = await self._extract_data(state)
-                if not state.extracted_data:
+                # Create a self-contained state for processing a single email
+                single_email_state = AgentState(
+                    current_email=email_data, 
+                    start_time=state.start_time,
+                    emails=[] # Clear list for single processing
+                )
+
+                # 1. Extract Data
+                extracted_state = await self._extract_data(single_email_state)
+                if not extracted_state.extracted_data:
+                    logger.error(f"Data extraction failed for {email_data.subject}. Skipping.")
                     failed_count += 1
                     continue
-                
-                # Validate EPCIS data
-                state = await self._validate_epcis(state)
-                if not state.validation_errors:
-                    logger.info("No validation errors found, skipping email")
+
+                # 2. Validate EPCIS
+                validated_state = await self._validate_epcis(extracted_state)
+                if not validated_state.validation_errors:
+                    logger.info(f"No validation errors for {email_data.subject}. Marking as processed.")
+                    await self._update_status(validated_state)
+                    processed_count += 1
                     continue
-                
-                # Generate action plan
-                state = await self._generate_action_plan(state)
-                if not state.action_plan:
+
+                # 3. Generate Action Plan
+                planned_state = await self._generate_action_plan(validated_state)
+                if not planned_state.action_plan or not planned_state.action_plan.recommendations:
+                    logger.error(f"Action plan generation failed or was empty for {email_data.subject}. Skipping.")
                     failed_count += 1
                     continue
+
+                # 4. Send Response
+                await self._send_response(planned_state)
                 
-                # Send response
-                state = await self._send_response(state)
-                
-                # Update email status
-                state = await self._update_status(state)
+                # 5. Update Status
+                await self._update_status(planned_state)
                 
                 processed_count += 1
-                logger.info(f"Successfully processed email from {email.sender}")
-                
+                logger.info(f"--- Successfully processed email: {email_data.subject} ---")
+
             except Exception as e:
-                logger.error(f"Failed to process email {email.subject}: {str(e)}")
+                logger.critical(f"An unhandled exception occurred while processing email {email_data.subject}: {e}", exc_info=True)
                 failed_count += 1
                 continue
-        
-        state.processed_count = processed_count
-        state.failed_count = failed_count
-        
-        return state
+
+        # Use a copy to set final counts without modifying the input state directly
+        final_state = state.copy(deep=True)
+        final_state.processed_count = processed_count
+        final_state.failed_count = failed_count
+        return final_state
     
     async def _extract_data(self, state: AgentState) -> AgentState:
         """Extract PO/LOT numbers and vendor info from email"""
         try:
-            extracted_data = await self.email_processor.extract_data(state.current_email)
+            extracted_data = await self.email_processor.process_email(state.current_email)
             state.extracted_data = extracted_data
             logger.info(f"Extracted data: PO={extracted_data.po_number}, LOT={extracted_data.lot_number}")
             
@@ -287,13 +320,16 @@ class OrchestratorAgent:
             logger.error(f"Failed to process single email: {str(e)}")
             return {"status": "error", "message": str(e)}
     
-    def get_status(self) -> Dict[str, Any]:
+    async def get_status(self) -> Dict[str, Any]:
         """Get current agent status"""
+        is_gmail_connected = await self.gmail_service.is_authenticated()
+        is_db_connected = self.db_service.test_connection()
+
         return {
             "agent_name": self.settings.AGENT_NAME,
             "status": "ready",
-            "gmail_connected": self.gmail_service.is_authenticated(),
-            "database_connected": self.db_service.test_connection(),
+            "gmail_connected": is_gmail_connected,
+            "database_connected": is_db_connected,
             "settings": {
                 "max_emails_per_run": self.settings.MAX_EMAILS_PER_RUN,
                 "openai_model": self.settings.OPENAI_MODEL,

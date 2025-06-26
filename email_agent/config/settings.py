@@ -28,6 +28,18 @@ class Settings(BaseSettings):
     MAX_EMAILS_PER_RUN: int = int(os.getenv("MAX_EMAILS_PER_RUN", "20"))
     ERROR_EMAIL_LABEL: str = os.getenv("ERROR_EMAIL_LABEL", "EPCIS_ERRORS")
     PROCESSED_EMAIL_LABEL: str = os.getenv("PROCESSED_EMAIL_LABEL", "EPCIS_PROCESSED")
+
+    # File Paths
+    EPCIS_FILES_PATH: str = os.getenv("EPCIS_FILES_PATH", "../../backend/epcis_drop")
+
+    # Validation Settings
+    VALIDATION_TIMEOUT: int = int(os.getenv("VALIDATION_TIMEOUT", "300"))
+
+    # Email Content
+    EMAIL_SENDER_NAME: str = os.getenv("EMAIL_SENDER_NAME", "EPCIS Validation System")
+    EMAIL_FROM: str = os.getenv("EMAIL_FROM", "noreply@example.com")
+    EMAIL_REPLY_TO: str = os.getenv("EMAIL_REPLY_TO", "support@example.com")
+    EMAIL_SIGNATURE: str = os.getenv("EMAIL_SIGNATURE", "Best regards,\nEPCIS Validation Team")
     
     # Logging Configuration
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")

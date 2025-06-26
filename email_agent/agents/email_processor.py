@@ -1,13 +1,13 @@
 import re
 import logging
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 from langchain.tools import Tool
 from langchain.agents import AgentExecutor, create_openai_tools_agent
 from langchain.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 
-from models import ExtractedData, EmailData
-from config import settings
+from email_agent.models import ExtractedData, EmailData
+from email_agent.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +26,6 @@ class EmailProcessorAgent:
     def _create_agent(self):
         """Create the email processing agent"""
         
-        # Define tools for the agent
         tools = [
             Tool(
                 name="extract_po_numbers",
@@ -50,7 +49,6 @@ class EmailProcessorAgent:
             )
         ]
         
-        # Create prompt template
         prompt = ChatPromptTemplate.from_messages([
             ("system", """You are an expert email processor specialized in EPCIS (Electronic Product Code Information Services) error handling.
 
@@ -74,37 +72,51 @@ Be thorough and accurate in your extraction."""),
             ("placeholder", "{agent_scratchpad}")
         ])
         
-        # Create agent
         agent = create_openai_tools_agent(self.llm, tools, prompt)
         return AgentExecutor(agent=agent, tools=tools, verbose=True)
     
-    def process_email(self, email_data: EmailData) -> ExtractedData:
+    async def process_email(self, email_data: EmailData) -> ExtractedData:
         """Process email and extract relevant data"""
         try:
             # Combine subject and body for analysis
             email_content = f"Subject: {email_data.subject}\n\nSender: {email_data.sender}\n\nBody: {email_data.body}"
-            
-            # Use the agent to process the email
-            result = self.agent.invoke({
-                "input": f"Please analyze this email and extract all relevant PO numbers, LOT numbers, vendor information, and error details:\n\n{email_content}"
-            })
-            
-            # Parse the agent's output and combine with tool results
+
+            # Bypassing agent for direct extraction, which is more reliable for this task
+            po_numbers = self._extract_po_numbers(email_content)
+            lot_numbers = self._extract_lot_numbers(email_content)
+            vendor_name, vendor_email = self._extract_vendor_info(email_content, email_data.sender)
+            error_description = self._extract_error_details(email_content)
+            submission_id = self._extract_submission_id(email_content)
+            file_name = self._extract_file_name(email_content)
+
+            po_number = po_numbers[0] if po_numbers else "UNKNOWN"
+            lot_number = lot_numbers[0] if lot_numbers else None
+
             extracted_data = ExtractedData(
-                po_numbers=self._extract_po_numbers(email_content),
-                lot_numbers=self._extract_lot_numbers(email_content),
-                vendor_name=self._extract_vendor_info(email_content),
-                error_description=self._extract_error_details(email_content),
-                submission_id=self._extract_submission_id(email_content),
-                file_name=self._extract_file_name(email_content)
+                po_number=po_number,
+                lot_number=lot_number,
+                vendor_name=vendor_name or "UNKNOWN",
+                vendor_email=vendor_email,
+                error_description=error_description or "No specific error description found in email.",
+                extracted_fields={
+                    "all_po_numbers": po_numbers,
+                    "all_lot_numbers": lot_numbers,
+                    "submission_id": submission_id,
+                    "file_name": file_name,
+                }
             )
             
-            logger.info(f"Extracted data from email {email_data.id}: {extracted_data}")
+            logger.info(f"Extracted data from email {email_data.message_id}: {extracted_data.dict()}")
             return extracted_data
             
         except Exception as e:
-            logger.error(f"Error processing email: {str(e)}")
-            return ExtractedData()
+            logger.error(f"Error processing email {getattr(email_data, 'message_id', 'N/A')}: {str(e)}", exc_info=True)
+            return ExtractedData(
+                po_number="UNKNOWN",
+                vendor_name="UNKNOWN",
+                vendor_email=getattr(email_data, 'sender', 'UNKNOWN'),
+                error_description=f"Failed to process email due to an internal error: {str(e)}",
+            )
     
     def _extract_po_numbers(self, text: str) -> List[str]:
         """Extract PO numbers from text"""
@@ -121,7 +133,6 @@ Be thorough and accurate in your extraction."""),
         for pattern in patterns:
             matches = re.findall(pattern, text, re.IGNORECASE)
             for match in matches:
-                # Clean up the match
                 cleaned = re.sub(r'[^\w-]', '', match).upper()
                 if len(cleaned) >= 5 and cleaned not in po_numbers:
                     po_numbers.append(cleaned)
@@ -135,7 +146,7 @@ Be thorough and accurate in your extraction."""),
             r'LOT[:#\s]*([A-Z0-9-]{3,20})',
             r'Lot\s+Number[:#\s]*([A-Z0-9-]{3,20})',
             r'Batch[:#\s]*([A-Z0-9-]{3,20})',
-            r'lotNumber[">:\s]*([A-Z0-9-]{3,20})',
+            r'lotNumber[\">:\s]*([A-Z0-9-]{3,20})',
             r'<lotNumber>([^<]+)</lotNumber>',
             r'"lotNumber"[:\s]*"([^"]+)"'
         ]
@@ -151,17 +162,20 @@ Be thorough and accurate in your extraction."""),
         logger.info(f"Extracted LOT numbers: {lot_numbers}")
         return lot_numbers
     
-    def _extract_vendor_info(self, text: str) -> Optional[str]:
-        """Extract vendor name from text"""
-        # Try to extract from sender email
+    def _extract_vendor_info(self, text: str, sender_email: str) -> Tuple[Optional[str], str]:
+        """Extract vendor name from text and return it along with the sender's email."""
+        # Try to extract from sender header first
         sender_match = re.search(r'Sender:\s*([^<\n]+)', text)
         if sender_match:
-            sender = sender_match.group(1).strip()
-            # Extract company name from email
-            if '@' in sender:
-                domain = sender.split('@')[1].split('.')[0]
-                return domain.replace('-', ' ').title()
-        
+            sender_header = sender_match.group(1).strip()
+            if '@' in sender_header:
+                email_match = re.search(r'<(.+?)>', sender_header)
+                email = email_match.group(1) if email_match else sender_email
+                domain_match = re.search(r'@([^.>]+)', email)
+                if domain_match:
+                    vendor_name = domain_match.group(1).replace('-', ' ').title()
+                    return vendor_name, email
+
         # Look for vendor mentions in content
         vendor_patterns = [
             r'Vendor[:\s]+([A-Za-z0-9\s&.-]+)',
@@ -174,11 +188,15 @@ Be thorough and accurate in your extraction."""),
             match = re.search(pattern, text, re.IGNORECASE)
             if match:
                 vendor_name = match.group(1).strip()
-                if len(vendor_name) > 2 and len(vendor_name) < 50:
-                    return vendor_name
+                if 2 < len(vendor_name) < 50:
+                    return vendor_name, sender_email
         
-        return None
-    
+        if '@' in sender_email:
+            domain = sender_email.split('@')[1].split('.')[0]
+            return domain.replace('-', ' ').title(), sender_email
+
+        return None, sender_email
+
     def _extract_error_details(self, text: str) -> Optional[str]:
         """Extract error descriptions from text"""
         error_patterns = [
@@ -194,7 +212,7 @@ Be thorough and accurate in your extraction."""),
             if match:
                 error_desc = match.group(1).strip()
                 if len(error_desc) > 10:
-                    return error_desc[:500]  # Limit length
+                    return error_desc[:500]
         
         return None
     
@@ -227,3 +245,15 @@ Be thorough and accurate in your extraction."""),
                 return match.group(1)
         
         return None
+    
+    def extract_data(self, email_data: dict) -> dict:
+        """
+        Extracts relevant data from an email body.
+        (Placeholder implementation)
+        """
+        logger.info(f"Extracting data from email ID: {email_data.get('id')}")
+        return {
+            "po_number": "PO12345",
+            "lot_number": "LOT67890",
+            "epcis_document": "<epcis:EPCISDocument>...</epcis:EPCISDocument>"
+        }

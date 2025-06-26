@@ -2,6 +2,7 @@ import os
 import base64
 import pickle
 import logging
+import asyncio
 from typing import List, Dict, Any, Optional
 from google.auth.transport.requests import Request
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -10,7 +11,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from pathlib import Path
 
-from config import settings
+from email_agent.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +26,7 @@ class GmailService:
         self.settings = settings
         self._authenticate()
     
+    # Keep the synchronous version of authentication
     def _authenticate(self):
         try:
             current_dir = Path(__file__).resolve().parent
@@ -75,75 +77,96 @@ class GmailService:
                 logger.error("Access denied. Make sure you've added your email as a test user in Google Cloud Console")
             raise
     
-    def get_emails_by_label(self, label: str, max_results: int = 10) -> List[Dict[str, Any]]:
-        """Get emails by label"""
+    async def get_emails_by_label(self, label: str, max_results: int = 10) -> List[Dict[str, Any]]:
+        """Get emails by label asynchronously"""
         try:
-            # Get label ID
-            labels = self.service.users().labels().list(userId='me').execute()
-            label_id = None
-            
-            for lbl in labels.get('labels', []):
-                if lbl['name'] == label:
-                    label_id = lbl['id']
-                    break
-            
-            if not label_id:
-                logger.warning(f"Label '{label}' not found")
-                return []
-            
-            # Get messages
-            result = self.service.users().messages().list(
-                userId='me',
-                labelIds=[label_id],
-                maxResults=max_results
-            ).execute()
-            
-            messages = []
-            for msg in result.get('messages', []):
-                message_detail = self.service.users().messages().get(
+            # Run Gmail API calls in a thread pool since they're blocking
+            def _get_emails():
+                # Get label ID
+                labels_response = self.service.users().labels().list(userId='me').execute()
+                labels = labels_response.get('labels', [])
+                
+                # Log all found labels for debugging
+                found_labels = [lbl['name'] for lbl in labels]
+                logger.info(f"Found the following labels in the account: {found_labels}")
+
+                label_id = None
+                for lbl in labels:
+                    if lbl['name'] == label:
+                        label_id = lbl['id']
+                        break
+                
+                if not label_id:
+                    logger.warning(f"The specific label '{label}' was not found in the account.")
+                    return []
+                
+                # Get messages
+                result = self.service.users().messages().list(
                     userId='me',
-                    id=msg['id'],
-                    format='full'
+                    labelIds=[label_id],
+                    maxResults=max_results
                 ).execute()
-                messages.append(message_detail)
+                
+                messages = []
+                for msg in result.get('messages', []):
+                    message_detail = self.service.users().messages().get(
+                        userId='me',
+                        id=msg['id'],
+                        format='full'
+                    ).execute()
+                    messages.append(message_detail)
+                
+                logger.info(f"Retrieved {len(messages)} emails with label '{label}'")
+                return messages
             
-            logger.info(f"Retrieved {len(messages)} emails with label '{label}'")
+            # Run the blocking function in a thread pool
+            messages = await asyncio.to_thread(_get_emails)
             return messages
             
         except Exception as e:
             logger.error(f"Error retrieving emails: {str(e)}")
             return []
     
-    def extract_email_content(self, message: Dict[str, Any]) -> Dict[str, Any]:
-        """Extract content from Gmail message"""
+    async def extract_email_content(self, message: Dict[str, Any]) -> Dict[str, Any]:
+        """Extract content from Gmail message asynchronously"""
         try:
-            headers = message['payload']['headers']
+            if not message or 'payload' not in message or not message['payload']:
+                logger.error("Invalid message format: missing payload")
+                return {'message_id': message.get('id', 'unknown') if message else 'unknown', 'error': 'Invalid message format'}
             
-            # Extract headers
-            subject = next((h['value'] for h in headers if h['name'] == 'Subject'), '')
-            sender = next((h['value'] for h in headers if h['name'] == 'From'), '')
-            recipient = next((h['value'] for h in headers if h['name'] == 'To'), '')
-            date = next((h['value'] for h in headers if h['name'] == 'Date'), '')
+            payload = message['payload']
+            headers = payload['headers']
+            
+            # Extract headers (case-insensitive)
+            subject = next((h['value'] for h in headers if h['name'].lower() == 'subject'), '')
+            sender = next((h['value'] for h in headers if h['name'].lower() == 'from'), '')
+            date = next((h['value'] for h in headers if h['name'].lower() == 'date'), '')
             
             # Extract body
-            body = self._extract_body(message['payload'])
+            body = await self._extract_body(payload)
+            
+            # Extract attachment names
+            attachments = []
+            if 'parts' in payload:
+                for part in payload['parts']:
+                    if part.get('filename'):
+                        attachments.append(part['filename'])
             
             return {
-                'id': message['id'],
+                'message_id': message['id'],
                 'subject': subject,
                 'sender': sender,
-                'recipient': recipient,
                 'body': body,
-                'date': date,
-                'labels': [lbl['id'] for lbl in message.get('labelIds', [])]
+                'received_date': date,
+                'attachments': attachments
             }
             
         except Exception as e:
-            logger.error(f"Error extracting email content: {str(e)}")
-            return {'id': message.get('id', 'unknown'), 'error': str(e)}
+            logger.error(f"Error extracting email content for message {message.get('id', 'unknown')}: {str(e)}")
+            return {'message_id': message.get('id', 'unknown') if message else 'unknown', 'error': str(e)}
     
-    def _extract_body(self, payload: Dict[str, Any]) -> str:
-        """Extract email body from payload"""
+    async def _extract_body(self, payload: Dict[str, Any]) -> str:
+        """Extract email body from payload asynchronously"""
         body = ""
         
         if 'parts' in payload:
@@ -161,64 +184,81 @@ class GmailService:
         
         return body
     
-    def send_email(self, to: str, subject: str, body: str, html_body: Optional[str] = None) -> bool:
-        """Send email"""
+    async def send_email(self, to: str, subject: str, body: str, html_body: Optional[str] = None) -> bool:
+        """Send email asynchronously"""
         try:
-            message = MIMEMultipart('alternative')
-            message['to'] = to
-            message['subject'] = subject
-            message['from'] = self.settings.EMAIL_FROM
+            def _send():
+                message = MIMEMultipart('alternative')
+                message['to'] = to
+                message['subject'] = subject
+                message['from'] = self.settings.EMAIL_FROM
+                
+                # Add text body
+                message.attach(MIMEText(body, 'plain'))
+                
+                # Add HTML body if provided
+                if html_body:
+                    message.attach(MIMEText(html_body, 'html'))
+                
+                raw_message = base64.urlsafe_b64encode(message.as_bytes()).decode('utf-8')
+                
+                self.service.users().messages().send(
+                    userId='me',
+                    body={'raw': raw_message}
+                ).execute()
+                
+                return True
             
-            # Add text body
-            message.attach(MIMEText(body, 'plain'))
-            
-            # Add HTML body if provided
-            if html_body:
-                message.attach(MIMEText(html_body, 'html'))
-            
-            raw_message = base64.urlsafe_b64encode(message.as_bytes()).decode('utf-8')
-            
-            self.service.users().messages().send(
-                userId='me',
-                body={'raw': raw_message}
-            ).execute()
-            
+            result = await asyncio.to_thread(_send)
             logger.info(f"Email sent successfully to {to}")
-            return True
+            return result
             
         except Exception as e:
             logger.error(f"Error sending email: {str(e)}")
             return False
     
-    def mark_email_processed(self, message_id: str) -> bool:
-        """Mark email as processed"""
+    async def mark_email_processed(self, message_id: str) -> bool:
+        """Mark email as processed asynchronously"""
         try:
-            # Add processed label and remove error label
-            self.service.users().messages().modify(
-                userId='me',
-                id=message_id,
-                body={
-                    'addLabelIds': [self.settings.PROCESSED_EMAIL_LABEL],
-                    'removeLabelIds': [self.settings.ERROR_EMAIL_LABEL]
-                }
-            ).execute()
+            def _mark():
+                # Add processed label and remove error label
+                self.service.users().messages().modify(
+                    userId='me',
+                    id=message_id,
+                    body={
+                        'addLabelIds': [self.settings.PROCESSED_EMAIL_LABEL],
+                        'removeLabelIds': [self.settings.ERROR_EMAIL_LABEL]
+                    }
+                ).execute()
+                return True
             
+            result = await asyncio.to_thread(_mark)
             logger.info(f"Email {message_id} marked as processed")
-            return True
+            return result
             
         except Exception as e:
             logger.error(f"Error marking email as processed: {str(e)}")
             return False
     
-    def is_authenticated(self):
-        """Check if the service is authenticated and ready to use."""
+    async def is_authenticated(self):
+        """Check if the service is authenticated and ready to use asynchronously."""
         try:
-            # Test the connection by making a simple API call
-            self.service.users().getProfile(userId='me').execute()
-            return True
+            def _check():
+                # Test the connection by making a simple API call
+                self.service.users().getProfile(userId='me').execute()
+                return True
+                
+            result = await asyncio.to_thread(_check)
+            return result
         except Exception as e:
             logger.error(f"Gmail authentication check failed: {str(e)}")
             return False
+
+    async def get_error_emails(self, max_results: int) -> List[Dict[str, Any]]:
+        """Fetches emails with the error label asynchronously."""
+        error_label = self.settings.ERROR_EMAIL_LABEL
+        logger.info(f"Fetching up to {max_results} emails with label '{error_label}'")
+        return await self.get_emails_by_label(error_label, max_results=max_results)
 
     def get_error_message(self):
         """Return any error message if authentication failed."""

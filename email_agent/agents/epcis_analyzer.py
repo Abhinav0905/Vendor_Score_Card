@@ -2,6 +2,7 @@ import os
 import sys
 import json
 import logging
+import asyncio
 from typing import List, Dict, Any
 
 from backend.epcis.event_validation import EPCISEventValidator
@@ -13,14 +14,14 @@ from backend.epcis.sequence_validation import EPCISSequenceValidator
 parent_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, parent_dir)
 
- 
+
 
 from langchain.tools import Tool
 from langchain.agents import AgentExecutor, create_openai_tools_agent
 from langchain.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 
-from email_agent.models import ValidationError
+from email_agent.models.email_models import ValidationError, EmailData, ExtractedData
 from email_agent.config import settings
 
 logger = logging.getLogger(__name__)
@@ -105,9 +106,11 @@ Provide detailed, actionable recommendations for each error found."""),
         try:
             if not os.path.exists(file_path):
                 return [ValidationError(
-                    type="file_error",
-                    severity="error", 
-                    message=f"EPCIS file not found: {file_path}"
+                    error_type="file_error",
+                    severity="error",
+                    description=f"EPCIS file not found: {file_path}",
+                    location=file_path,
+                    recommendation="Ensure the file path is correct and the file exists."
                 )]
             
             logger.info(f"Analyzing EPCIS file: {file_path}")
@@ -121,9 +124,11 @@ Provide detailed, actionable recommendations for each error found."""),
             events = self._parse_file(file_path)
             if not events:
                 return [ValidationError(
-                    type="parse_error",
+                    error_type="parse_error",
                     severity="error",
-                    message="Could not parse EPCIS file or no events found"
+                    description="Could not parse EPCIS file or no events found",
+                    location=file_path,
+                    recommendation="Check file content and format."
                 )]
             
             # Perform validations
@@ -148,7 +153,7 @@ Provide detailed, actionable recommendations for each error found."""),
                 # Enhance errors with AI insights
                 for i, error in enumerate(validation_errors):
                     if i < len(analyzed_errors):
-                        error.recommendation = analyzed_errors[i].get('recommendation')
+                        error.recommendation = analyzed_errors[i].get('recommendation', error.recommendation)
             
             logger.info(f"Found {len(validation_errors)} validation errors")
             return validation_errors
@@ -156,9 +161,11 @@ Provide detailed, actionable recommendations for each error found."""),
         except Exception as e:
             logger.error(f"Error analyzing EPCIS file: {str(e)}")
             return [ValidationError(
-                type="analysis_error",
+                error_type="analysis_error",
                 severity="error",
-                message=f"Error analyzing file: {str(e)}"
+                description=f"Error analyzing file: {str(e)}",
+                location=file_path,
+                recommendation="An unexpected error occurred during file analysis."
             )]
     
     def _parse_file(self, file_path: str) -> List[Dict[str, Any]]:
@@ -190,6 +197,28 @@ Provide detailed, actionable recommendations for each error found."""),
             
         except Exception as e:
             logger.error(f"Error parsing file: {str(e)}")
+            return []
+    
+    def _parse_content(self, content: str, content_type: str = 'json') -> List[Dict[str, Any]]:
+        """Parse EPCIS content from a string."""
+        try:
+            events = []
+            if content_type == 'json':
+                data = json.loads(content)
+                if 'epcisBody' in data and 'eventList' in data['epcisBody']:
+                    events = data['epcisBody']['eventList']
+                elif 'events' in data:
+                    events = data['events']
+                elif isinstance(data, list):
+                    events = data
+            elif content_type == 'xml':
+                logger.warning("XML parsing not implemented in basic version")
+                events = []
+            
+            logger.info(f"Parsed {len(events)} events from content string")
+            return events
+        except Exception as e:
+            logger.error(f"Error parsing content string: {str(e)}")
             return []
     
     def _validate_sequence(self, events_json: str) -> List[Dict[str, Any]]:
@@ -261,8 +290,8 @@ Provide detailed, actionable recommendations for each error found."""),
     
     def _generate_recommendation(self, error: Dict[str, Any]) -> str:
         """Generate recommendation for a specific error"""
-        error_type = error.get('type', '')
-        message = error.get('message', '')
+        error_type = error.get('type', error.get('error_type', ''))
+        message = error.get('message', error.get('description', ''))
         
         if 'sequence' in error_type.lower():
             if 'not commissioned' in message:
@@ -293,14 +322,87 @@ Provide detailed, actionable recommendations for each error found."""),
         validation_errors = []
         
         for error in errors:
+            if not isinstance(error, dict):
+                logger.warning(f"Skipping non-dict error object: {error}")
+                continue
+
+            error_type = error.get('type') or error_category
+            
             validation_error = ValidationError(
-                type=error.get('type', error_category),
+                error_type=error_type,
                 severity=error.get('severity', 'error'),
-                message=error.get('message', error.get('description', 'Unknown error')),
-                line_number=error.get('line_number'),
-                epc=error.get('epc'),
-                recommendation=error.get('recommendation')
+                description=error.get('message', error.get('description', 'Unknown error')),
+                location=f"EPC: {error.get('epc', 'N/A')}, Line: {error.get('line_number', 'N/A')}",
+                recommendation=self._generate_recommendation(error)
             )
             validation_errors.append(validation_error)
         
         return validation_errors
+    
+    async def analyze_errors(self, extracted_data: ExtractedData, email: EmailData) -> List[ValidationError]:
+        """
+        Analyzes EPCIS data from an email for errors.
+        """
+        logger.info(f"Analyzing EPCIS data for PO: {extracted_data.po_number if extracted_data else 'N/A'}, LOT: {extracted_data.lot_number if extracted_data else 'N/A'}")
+
+        if not email or not email.body:
+            logger.warning("Email or email body is empty, cannot analyze EPCIS data.")
+            return [ValidationError(
+                error_type="content_error", 
+                severity="warning", 
+                description="Email or email body is empty.",
+                location="Email Body",
+                recommendation="The email body was empty, so no EPCIS data could be analyzed."
+            )]
+
+        def _run_sync_validation():
+            # Assuming email body contains the EPCIS data as a JSON string
+            events = self._parse_content(email.body)
+            if not events:
+                return [ValidationError(
+                    error_type="parse_error",
+                    severity="error",
+                    description="Could not parse EPCIS data from email body or no events found",
+                    location="Email Body",
+                    recommendation="Ensure the email body contains valid EPCIS data in JSON format."
+                )]
+
+            validation_errors = []
+            
+            # Sequence validation
+            sequence_errors = self._validate_sequence(json.dumps(events))
+            validation_errors.extend(self._convert_to_validation_errors(sequence_errors, "sequence"))
+            
+            # Event validation
+            if self.event_validator:
+                event_errors = self._validate_events(json.dumps(events))
+                validation_errors.extend(self._convert_to_validation_errors(event_errors, "event"))
+            
+            # Hierarchy validation
+            hierarchy_errors = self.sequence_validator.validate_packaging_hierarchy(events)
+            validation_errors.extend(self._convert_to_validation_errors(hierarchy_errors, "hierarchy"))
+
+            # Analyze error patterns with AI
+            if validation_errors:
+                analyzed_errors = self._analyze_error_patterns(json.dumps([e.dict() for e in validation_errors]))
+                # Enhance errors with AI insights
+                for i, error in enumerate(validation_errors):
+                    if i < len(analyzed_errors):
+                        error.recommendation = analyzed_errors[i].get('recommendation', error.recommendation)
+
+            logger.info(f"Found {len(validation_errors)} validation errors in email content.")
+            return validation_errors
+
+        try:
+            # Run the synchronous validation logic in a thread pool
+            validation_errors = await asyncio.to_thread(_run_sync_validation)
+            return validation_errors
+        except Exception as e:
+            logger.error(f"Error analyzing EPCIS data from email: {str(e)}")
+            return [ValidationError(
+                error_type="analysis_error",
+                severity="error",
+                description=f"Error analyzing EPCIS data: {str(e)}",
+                location="Email Body",
+                recommendation="An unexpected error occurred during email content analysis."
+            )]

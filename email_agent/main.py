@@ -4,18 +4,19 @@ Main entry point for the EPCIS Error Correction Agent
 import asyncio
 import argparse
 import logging
-import sys
-from datetime import datetime
-from pathlib import Path
-import os
+
+from email_agent.utils.logging_config import setup_logging
+from email_agent.agents.orchestrator import OrchestratorAgent
+from email_agent.config.settings import Settings
+from email_agent.services.gmail_service import GmailService
 
 # Add project root to Python path to resolve module not found error
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+# sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from utils.logging_config import setup_logging
-from agents.orchestrator import OrchestratorAgent
-from config.settings import Settings
-from services.gmail_service import GmailService
+# from utils.logging_config import setup_logging
+# from agents.orchestrator import OrchestratorAgent
+# from config.settings import Settings
+# from services.gmail_service import GmailService
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +31,7 @@ async def run_agent():
         agent = OrchestratorAgent(settings)
         
         # Check agent status
-        status = agent.get_status()
+        status = await agent.get_status()
         logger.info(f"Agent Status: {status}")
         
         if not status["gmail_connected"]:

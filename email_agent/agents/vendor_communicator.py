@@ -1,5 +1,5 @@
 import logging
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
 from jinja2 import Template
 
@@ -118,6 +118,100 @@ Communication should be:
             logger.error(f"Error creating/sending action plan: {str(e)}")
             return False
     
+    # async def generate_action_plan(self, vendor_info: Dict[str, Any], po_number: str = None, lot_number: str = None) -> ActionPlan:
+    #     """Public method to generate an action plan for orchestrator compatibility.
+        
+    #     Note: The orchestrator will handle validation_errors and file_path separately."""
+    #     try:
+    #         if not vendor_info or not isinstance(vendor_info, dict):
+    #             logger.error("Invalid vendor_info provided, returning empty action plan.")
+    #             return self._create_empty_action_plan()
+
+    #         validation_errors = vendor_info.get('validation_errors', [])
+    #         file_path = vendor_info.get('file_path', '')
+    #         po_number = po_number or vendor_info.get('po_number', 'UNKNOWN')
+    #         lot_number = lot_number or vendor_info.get('lot_number', 'UNKNOWN')
+            
+    #         if not validation_errors:
+    #             logger.info("No validation errors found, no action plan needed.")
+    #             return self._create_empty_action_plan()
+            
+    #         return self._generate_action_plan(po_number, lot_number, vendor_info, validation_errors, file_path)
+    #     except Exception as e:
+    #         logger.error(f"Error in generate_action_plan: {str(e)}")
+    #         return self._create_empty_action_plan()
+
+    async def generate_action_plan(self, vendor_info: Dict[str, Any], validation_errors: List[ValidationError], *args) -> ActionPlan:
+        """Generate an action plan for vendor communication.
+        
+        Args:
+            vendor_info: Dictionary containing vendor details and PO information
+            validation_errors: List of validation errors found in EPCIS data
+            *args: Additional arguments that might be passed by the orchestrator
+        """
+        try:
+            if not vendor_info or not isinstance(vendor_info, dict):
+                logger.error("Invalid vendor_info provided, returning empty action plan.")
+                return self._create_empty_action_plan()
+
+            po_number = vendor_info.get('po_number', 'UNKNOWN')
+            lot_number = vendor_info.get('lot_number', 'UNKNOWN')
+            file_path = vendor_info.get('file_path', '')
+            
+            if not validation_errors:
+                logger.info("No validation errors found, creating empty action plan.")
+                return self._create_empty_action_plan()
+            
+            return self._generate_action_plan(
+                po_number=po_number,
+                lot_number=lot_number,
+                vendor_info=vendor_info,
+                validation_errors=validation_errors,
+                file_path=file_path
+            )
+        except Exception as e:
+            logger.error(f"Error in generate_action_plan: {str(e)}")
+            return self._create_empty_action_plan()
+
+    async def send_correction_email(self, action_plan: ActionPlan, vendor_info: Dict[str, Any], *args) -> bool:
+        """Public method to send correction email for orchestrator compatibility.
+        
+        Note: The orchestrator may pass additional arguments that we don't need."""
+        try:
+            # Do not send an email if the action plan is empty or invalid (has no errors)
+            if not action_plan or not action_plan.errors:
+                logger.warning("Skipping email for action plan with no errors.")
+                return False
+                
+            if not vendor_info or not isinstance(vendor_info, dict) or not vendor_info.get('email'):
+                logger.error("Invalid vendor_info or missing email, cannot send email.")
+                return False
+
+            email_content = self._generate_vendor_email(action_plan)
+            result = await self.gmail_service.send_email(
+                to=vendor_info.get('email', ''),
+                subject=email_content['subject'],
+                body=email_content['plain_text'],
+                html_body=email_content['html']
+            )
+            return bool(result)
+        except Exception as e:
+            logger.error(f"Error in send_correction_email: {str(e)}")
+            return False
+    
+    def _create_empty_action_plan(self) -> ActionPlan:
+        """Creates a default, empty action plan to avoid returning None."""
+        return ActionPlan(
+            po_number="UNKNOWN",
+            lot_number="UNKNOWN",
+            vendor_email="",
+            vendor_name="Unknown Vendor",
+            errors=[],
+            recommendations=["Could not generate action plan due to missing information."],
+            priority="normal",
+            due_date=datetime.now() + timedelta(days=1)
+        )
+
     def _generate_action_plan(self, 
                             po_number: str,
                             lot_number: str,

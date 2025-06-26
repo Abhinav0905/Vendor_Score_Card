@@ -34,18 +34,30 @@ class ValidationError(BaseModel):
     location: str
     recommendation: str
 
-
 class ActionPlan(BaseModel):
-    """Model for action plans"""
-    vendor_name: str
-    vendor_email: str
-    po_number: str
-    lot_number: Optional[str] = None
-    summary: str
-    recommendations: List[str]
-    email_subject: str
-    email_body_text: str
-    email_body_html: str
+    """Model for vendor action plan"""
+    summary: str = "No EPCIS errors found"
+    email_subject: str = "EPCIS Validation Results"
+    email_body_text: str = "No action required"
+    email_body_html: str = "<p>No action required</p>"
+    po_number: str = "UNKNOWN"
+    vendor_name: str = "UNKNOWN"
+    vendor_email: str = "UNKNOWN"
+    due_date: Optional[datetime] = None
+    error_count: int = 0
+    recommendations: List[str] = Field(default_factory=list)
+
+# class ActionPlan(BaseModel):
+#     """Model for action plans"""
+#     vendor_name: str
+#     vendor_email: str
+#     po_number: str
+#     lot_number: Optional[str] = None
+#     summary: str
+#     recommendations: List[str]
+#     email_subject: str
+#     email_body_text: str
+#     email_body_html: str
 
 
 class AgentState(BaseModel):
