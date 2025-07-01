@@ -24,6 +24,7 @@ class GmailService:
     
     def __init__(self, settings):
         self.settings = settings
+        self.service = None
         self._authenticate()
     
     # Keep the synchronous version of authentication
@@ -92,7 +93,7 @@ class GmailService:
 
                 label_id = None
                 for lbl in labels:
-                    if lbl['name'] == label:
+                    if lbl['name'].lower() == label.lower():
                         label_id = lbl['id']
                         break
                 
@@ -217,17 +218,54 @@ class GmailService:
             logger.error(f"Error sending email: {str(e)}")
             return False
     
+    # async def mark_email_processed(self, message_id: str) -> bool:
+    #     """Mark email as processed asynchronously"""
+    #     try:
+    #         def _mark():
+    #             # Add processed label and remove error label
+    #             self.service.users().messages().modify(
+    #                 userId='me',
+    #                 id=message_id,
+    #                 body={
+    #                     'addLabelIds': [self.settings.PROCESSED_EMAIL_LABEL],
+    #                     'removeLabelIds': [self.settings.ERROR_EMAIL_LABEL]
+    #                 }
+    #             ).execute()
+    #             return True
+            
+    #         result = await asyncio.to_thread(_mark)
+    #         logger.info(f"Email {message_id} marked as processed")
+    #         return result
+            
+    #     except Exception as e:
+    #         logger.error(f"Error marking email as processed: {str(e)}")
+    #         return False
+
     async def mark_email_processed(self, message_id: str) -> bool:
         """Mark email as processed asynchronously"""
         try:
             def _mark():
+                # Get all labels first
+                labels_response = self.service.users().labels().list(userId='me').execute()
+                labels = labels_response.get('labels', [])
+                
+                # Find label IDs case-insensitively
+                processed_label_id = next((lbl['id'] for lbl in labels 
+                    if lbl['name'].lower() == self.settings.PROCESSED_EMAIL_LABEL.lower()), None)
+                error_label_id = next((lbl['id'] for lbl in labels 
+                    if lbl['name'].lower() == self.settings.ERROR_EMAIL_LABEL.lower()), None)
+                
+                if not processed_label_id or not error_label_id:
+                    logger.error("Could not find required labels")
+                    return False
+
                 # Add processed label and remove error label
                 self.service.users().messages().modify(
                     userId='me',
                     id=message_id,
                     body={
-                        'addLabelIds': [self.settings.PROCESSED_EMAIL_LABEL],
-                        'removeLabelIds': [self.settings.ERROR_EMAIL_LABEL]
+                        'addLabelIds': [processed_label_id],
+                        'removeLabelIds': [error_label_id]
                     }
                 ).execute()
                 return True

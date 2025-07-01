@@ -99,3 +99,14 @@ ehthumbs.db
 /email_agent/config/gmail_credentails.json
 /email_agent/config/token.pickle
 /email_agent/config/gmail_token.pickle
+
+# Config files
+email_agent/config/gmail_credentials.json
+email_agent/config/token.pickle
+email_agent/config/token 2.pickle
+.env
+
+# Other sensitive files
+*.key
+*.pem
+*.pickle

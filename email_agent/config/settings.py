@@ -2,7 +2,7 @@
 
 import os
 from typing import List, Optional
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     """Application settings"""
@@ -26,8 +26,8 @@ class Settings(BaseSettings):
     # Agent Configuration
     AGENT_NAME: str = "EPCIS Error Correction Agent"
     MAX_EMAILS_PER_RUN: int = int(os.getenv("MAX_EMAILS_PER_RUN", "20"))
-    ERROR_EMAIL_LABEL: str = os.getenv("ERROR_EMAIL_LABEL", "EPCIS_ERRORS")
-    PROCESSED_EMAIL_LABEL: str = os.getenv("PROCESSED_EMAIL_LABEL", "EPCIS_PROCESSED")
+    ERROR_EMAIL_LABEL: str = os.getenv("ERROR_EMAIL_LABEL", "epcis_errors")
+    PROCESSED_EMAIL_LABEL: str = os.getenv("PROCESSED_EMAIL_LABEL", "epcis_processed")
 
     # File Paths
     EPCIS_FILES_PATH: str = os.getenv("EPCIS_FILES_PATH", "../../backend/epcis_drop")
@@ -45,10 +45,34 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
     LOG_FILE: str = os.getenv("LOG_FILE", "logs/agent.log")
     
-    class Config:
-        env_file = ".env"
-        case_sensitive = True
+    # class Config:
+    #     env_file = ".env",
+    #     env_file_encoding="utf-8",
+    #     case_sensitive = True
 
+    # Vendor Validation Settings
+    REQUIRED_VENDOR_FIELDS: str = os.getenv("REQUIRED_VENDOR_FIELDS", "vendor_name,vendor_email,po_number")
+    DEFAULT_VENDOR_NAME: str = os.getenv("DEFAULT_VENDOR_NAME", "Unknown Vendor")
+    DEFAULT_VENDOR_EMAIL: str = os.getenv("DEFAULT_VENDOR_EMAIL", "rushtoabhinavin@gmail.com")
+    VALID_VENDOR_DOMAINS: str = os.getenv("VALID_VENDOR_DOMAINS", "gmail.com")
+    MIN_PO_LENGTH: int = int(os.getenv("MIN_PO_LENGTH", "1"))
+
+    # Helper properties for vendor validation
+    @property
+    def required_vendor_fields_list(self) -> List[str]:
+        """Convert comma-separated string to list"""
+        return [field.strip() for field in self.REQUIRED_VENDOR_FIELDS.split(',')]
+
+    @property
+    def valid_vendor_domains_list(self) -> List[str]:
+        """Convert comma-separated string to list"""
+        return [domain.strip() for domain in self.VALID_VENDOR_DOMAINS.split(',')]
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=True
+    )
 
 # Create settings instance
 settings = Settings()

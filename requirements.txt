@@ -3,7 +3,8 @@ langchain-core
 langchain-community>=0.0.38
 langchain-openai>=0.1.8
 langchain-google-genai>=1.0.6
-langgraph==0.0.23
+langgraph==0.5.0
+langgraph-checkpoint==2.1.0
 langsmith>=0.1.77
 
 # Email and Communication

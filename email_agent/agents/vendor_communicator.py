@@ -179,7 +179,7 @@ Communication should be:
         Note: The orchestrator may pass additional arguments that we don't need."""
         try:
             # Do not send an email if the action plan is empty or invalid (has no errors)
-            if not action_plan or not action_plan.errors:
+            if not action_plan or not action_plan.recommendations:
                 logger.warning("Skipping email for action plan with no errors.")
                 return False
                 
