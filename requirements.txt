@@ -1,0 +1,38 @@
+# Core AI Agent Dependencies
+langchain-core
+langchain-community>=0.0.38
+langchain-openai>=0.1.8
+langchain-google-genai>=1.0.6
+langgraph==0.5.0
+langgraph-checkpoint==2.1.0
+langsmith>=0.1.77
+
+# Email and Communication
+google-api-python-client==2.112.0
+google-auth-httplib2==0.2.0
+google-auth-oauthlib==1.2.2
+email-validator==2.1.0
+jinja2==3.1.2
+
+# Database and Data Processing
+sqlalchemy>=2.0.23
+pymysql>=1.1.0
+pandas>=2.1.4
+pydantic>=2.5.2
+lxml
+
+# Text Processing and AI
+openai>=1.6.1
+tiktoken>=0.5.2
+python-dotenv>=1.0.0
+regex>=2023.12.25
+
+# Async and Utilities
+aiohttp==3.9.1
+rich==13.7.0
+
+# Testing and Development
+pytest==7.4.3
+pytest-asyncio==0.21.1
+python-json-logger==2.0.7
+

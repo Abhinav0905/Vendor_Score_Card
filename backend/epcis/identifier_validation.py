@@ -1,16 +1,20 @@
 import re
-from typing import Dict, Optional
+from typing import Optional
+
 
 class GS1IdentifierValidator:
     """Validator for GS1 identifiers (SGTIN, SSCC, SGLN, etc.)"""
     
     # GS1 identifier patterns
     EPC_PATTERNS = {
-        'sgtin': r'^urn:epc:id:sgtin:\d+\.[0-9]+\.*[0-9]*$',
-        'sscc': r'^urn:epc:id:sscc:\d+\.[0-9]+$',
-        'sgln': r'^urn:epc:id:sgln:\d+\.[0-9]+\.*[0-9]*$',
-        'grai': r'^urn:epc:id:grai:\d+\.[0-9]+\.*[0-9]*$',
-        'giai': r'^urn:epc:id:giai:\d+\.*[0-9]+$',
+        # Updated SGTIN pattern to properly validate SGTIN-198 format:
+        # <CompanyPrefix>.<ItemReference>.<SerialNumber>
+        # Where SerialNumber must be 1-20 alphanumeric characters
+        'sgtin': r'^urn:epc:id:sgtin:(\d+)\.(\d+)\.([A-Za-z0-9]{1,20})$',
+        'sscc': r'^urn:epc:id:sscc:(\d+)\.(\d+)$',
+        'sgln': r'^urn:epc:id:sgln:(\d+)\.(\d+)$',
+        'grai': r'^urn:epc:id:grai:(\d+)\.(\d+)$',
+        'giai': r'^urn:epc:id:giai:(\d+)\.(\d+)$',
     }
 
     @staticmethod
@@ -60,7 +64,24 @@ class GS1IdentifierValidator:
         Returns:
             bool: True if EPC matches a valid pattern
         """
-        return any(re.match(pattern, epc) for pattern in cls.EPC_PATTERNS.values())
+        for epc_type, pattern in cls.EPC_PATTERNS.items():
+            m = re.match(pattern, epc)
+            if not m:
+                continue
+            # Enforce SSCC total digits = 17
+            if epc_type == 'sscc':
+                combined = m.group(1) + m.group(2)
+                return combined.isdigit() and len(combined) == 17
+            # GLN check digit validation for SGLN
+            if epc_type == 'sgln':
+                number = m.group(1) + m.group(2)
+                return number.isdigit() and GS1IdentifierValidator.validate_gs1_check_digit(number)
+            # For GRAI and GIAI, ensure numeric segments
+            if epc_type in ('grai', 'giai'):
+                return m.group(1).isdigit() and m.group(2).isdigit()
+            # SGTIN default
+            return True
+        return False
 
     @classmethod
     def get_epc_type(cls, epc: str) -> Optional[str]:

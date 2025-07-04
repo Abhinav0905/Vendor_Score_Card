@@ -1,11 +1,13 @@
 import json
-import xml.etree.ElementTree as ET
+import lxml.etree as ET
 from typing import Dict, List, Set, Tuple, Optional
 from .utils import extract_namespaces, logger
+from .utils import validate_dates_order
+
 
 class EPCISParser:
     """Parser for EPCIS XML and JSON documents"""
-
+    
     @staticmethod
     def parse_document(content: bytes, is_xml: bool = True) -> Tuple[Optional[Dict], List[Dict], Set[str], List[Dict]]:
         """Parse an EPCIS document and extract header, events, and company info
@@ -25,7 +27,6 @@ class EPCISParser:
         header = None
         events = []
         companies = set()
-
         try:
             if is_xml:
                 header, events, companies, xml_errors = EPCISParser._parse_xml(content)
@@ -34,6 +35,14 @@ class EPCISParser:
                 header, events, companies, json_errors = EPCISParser._parse_json(content)
                 errors.extend(json_errors)
                 
+            # Additional header processing to extract instance identifier
+            if header:
+                # Extract unique instance identifier if available
+                doc_id = header.get('DocumentIdentification', {})
+                instance_id = doc_id.get('InstanceIdentifier')
+                if instance_id:
+                    header['instance_identifier'] = instance_id
+                    logger.info(f"Found instance identifier: {instance_id}")
         except Exception as e:
             logger.exception(f"Document parsing error: {e}")
             errors.append({
@@ -41,9 +50,8 @@ class EPCISParser:
                 'severity': 'error',
                 'message': f"Document parsing error: {str(e)}"
             })
-
         return header, events, companies, errors
-
+    
     @staticmethod
     def _parse_xml(content: bytes) -> Tuple[Optional[Dict], List[Dict], Set[str], List[Dict]]:
         """Parse XML EPCIS document
@@ -58,10 +66,10 @@ class EPCISParser:
         events = []
         companies = set()
         header = None
-
         try:
-            # Check XML well-formedness
-            root = ET.fromstring(content)
+            # Use lxml parser which maintains line numbers
+            parser = ET.XMLParser(remove_blank_text=True)
+            root = ET.fromstring(content, parser)
             
             # Validate EPCIS namespace
             namespaces = extract_namespaces(content.decode('utf-8'))
@@ -71,23 +79,82 @@ class EPCISParser:
                     'severity': 'error',
                     'message': "Missing EPCIS namespace declaration"
                 })
-
+                
             # Extract header
             header_elem = root.find('.//StandardBusinessDocumentHeader')
             if header_elem is not None:
                 header = EPCISParser._xml_to_dict(header_elem)
-
-            # Extract events
+                
+            # Extract events with line number information
             for event_elem in root.findall('.//ObjectEvent') + root.findall('.//AggregationEvent'):
                 try:
+                    # Basic event structure with event-level line number
                     event = EPCISParser._xml_to_dict(event_elem)
-                    events.append(event)
+                    # assign eventType for validator
+                    event['eventType'] = event_elem.tag
+                    event['_line_number'] = event_elem.sourceline
+                    EPCISParser._normalize_event_fields(event)
                     
-                    # Extract company prefixes
-                    for epc in event.get('epcList', []) + event.get('childEPCs', []):
-                        company = epc.split(':')[4].split('.')[0] if len(epc.split(':')) > 4 else None
-                        if company:
-                            companies.add(company)
+                    # Add recordTime from XML for date-order validation
+                    rec_elem = event_elem.find('.//recordTime')
+                    if rec_elem is not None and rec_elem.text:
+                        event['recordTime'] = rec_elem.text.strip()
+                    
+                    # date-order validation - only if both dates are present
+                    if 'eventTime' in event and 'recordTime' in event:
+                        date_errors = []
+                        if not validate_dates_order(event['eventTime'], event['recordTime']):
+                            date_errors.append({
+                                'type': 'sequence',
+                                'severity': 'error',
+                                'message': f"Invalid date order: eventTime {event['eventTime']} is not before recordTime {event['recordTime']}"
+                            })
+                        if date_errors:
+                            errors.extend(date_errors)
+                    
+                    # Process EPCs with detailed line number tracking
+                    epc_list_elem = event_elem.find('.//epcList')
+                    if epc_list_elem is not None:
+                        epc_elements = []
+                        for epc_elem in epc_list_elem.findall('.//epc'):
+                            if epc_elem.text:
+                                epc_value = epc_elem.text.strip()
+                                # Store each EPC with its own line number
+                                epc_elements.append({
+                                    'value': epc_value,
+                                    'line_number': epc_elem.sourceline
+                                })
+                                
+                                # Extract company prefixes
+                                company = epc_value.split(':')[4].split('.')[0] if len(epc_value.split(':')) > 4 else None
+                                if company:
+                                    companies.add(company)
+                        
+                        # Replace string list with detailed info
+                        event['epcList_detailed'] = epc_elements
+                    
+                    # Similarly process childEPCs
+                    child_epcs_elem = event_elem.find('.//childEPCs')
+                    if child_epcs_elem is not None:
+                        child_epc_elements = []
+                        for epc_elem in child_epcs_elem.findall('.//epc'):
+                            if epc_elem.text:
+                                epc_value = epc_elem.text.strip()
+                                # Store each EPC with its own line number
+                                child_epc_elements.append({
+                                    'value': epc_value,
+                                    'line_number': epc_elem.sourceline
+                                })
+                                
+                                # Extract company prefixes
+                                company = epc_value.split(':')[4].split('.')[0] if len(epc_value.split(':')) > 4 else None
+                                if company:
+                                    companies.add(company)
+                        
+                        # Replace string list with detailed info
+                        event['childEPCs_detailed'] = child_epc_elements
+                    
+                    events.append(event)
                             
                 except Exception as e:
                     errors.append({
@@ -95,7 +162,6 @@ class EPCISParser:
                         'severity': 'error',
                         'message': f"Error parsing event: {str(e)}"
                     })
-
         except ET.ParseError as e:
             errors.append({
                 'type': 'format',
@@ -108,7 +174,6 @@ class EPCISParser:
                 'severity': 'error',
                 'message': f"XML parsing error: {str(e)}"
             })
-
         return header, events, companies, errors
 
     @staticmethod
@@ -143,6 +208,22 @@ class EPCISParser:
             # Extract events
             for event in data.get('eventList', []):
                 try:
+                    # assign eventType for validator
+                    event['eventType'] = event.get('type')
+                    EPCISParser._normalize_event_fields(event)
+                    
+                    # Normalize JSON eventTime and recordTime for consistent parsing
+                    raw_et = event.get('eventTime')
+                    if raw_et and raw_et.endswith('Z'):
+                        event['eventTime'] = raw_et.replace('Z', '+00:00')
+                    if 'recordTime' in event and event['recordTime'].endswith('Z'):
+                        event['recordTime'] = event['recordTime'].replace('Z', '+00:00')
+                    
+                    # date-order validation
+                    date_errors = validate_dates_order(event)
+                    if date_errors:
+                        errors.extend(date_errors)
+                    
                     events.append(event)
                     
                     # Extract company prefixes
@@ -172,6 +253,20 @@ class EPCISParser:
             })
 
         return header, events, companies, errors
+
+    @staticmethod
+    def _normalize_event_fields(event: Dict):
+        """Rename event fields to validator expected names"""
+        mapping = {
+            'type': 'eventType',
+            'time': 'eventTime',
+            'timezone_offset': 'eventTimeZoneOffset',
+            'epcs': 'epcList',
+            'biz_step': 'bizStep'
+        }
+        for old, new in mapping.items():
+            if old in event:
+                event[new] = event.pop(old)
 
     @staticmethod
     def _xml_to_dict(element: ET.Element) -> Dict:

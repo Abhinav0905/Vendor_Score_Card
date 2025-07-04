@@ -1,6 +1,7 @@
 from datetime import datetime
-from typing import Dict, List, Set, Optional
-from .utils import validate_date_format, validate_dates_order, add_error, logger
+import re
+from typing import Dict, List, Set
+from .utils import validate_date_format, add_error, validate_dates_order
 from .identifier_validation import GS1IdentifierValidator
 
 class EPCISEventValidator:
@@ -61,6 +62,11 @@ class EPCISEventValidator:
         """
         errors = []
         
+        # Date-order validation for direct event inputs
+        date_errors = validate_dates_order(event)
+        if date_errors:
+            errors.extend(date_errors)
+        
         # Basic structure validation
         if not event:
             add_error(errors, 'structure', 'error', "Empty event found")
@@ -97,6 +103,11 @@ class EPCISEventValidator:
     def _validate_required_fields(self, event: Dict, errors: List[Dict]):
         """Validate required fields based on event type"""
         event_type = event.get('eventType')
+        # Always check for bizStep in ObjectEvent, AggregationEvent, TransactionEvent
+        if event_type in ['ObjectEvent', 'AggregationEvent', 'TransactionEvent']:
+            biz_step = event.get('bizStep')
+            if not isinstance(biz_step, str) or not biz_step.strip():
+                add_error(errors, 'field', 'error', "Missing required field: bizStep")
         if event_type in self.REQUIRED_FIELDS:
             for field in self.REQUIRED_FIELDS[event_type]:
                 if field == 'parentID' and event_type == 'AggregationEvent':
@@ -127,34 +138,69 @@ class EPCISEventValidator:
 
     def _validate_epcs(self, event: Dict, authorized_companies: Set[str], errors: List[Dict]):
         """Validate EPCs in the event"""
-        epcs = event.get('epcList', []) + event.get('childEPCs', [])
-        
-        if isinstance(epcs, list):
-            for epc in epcs:
+        # First check if we have detailed EPC data with line numbers
+        detailed_checked = False
+        if 'epcList_detailed' in event:
+            detailed_checked = True
+            for epc_entry in event['epcList_detailed']:
+                epc = epc_entry.get('value', '')
+                line_number = epc_entry.get('line_number', 0)
+                
                 if not self.gs1_validator.validate_epc_format(epc):
                     add_error(errors, 'field', 'error',
-                            f"Invalid EPC format: {epc}")
+                            f"Invalid EPC format: {epc}", line_number=line_number)
                 elif not self.gs1_validator.validate_company_prefix(epc, authorized_companies):
                     add_error(errors, 'field', 'error',
-                            f"Unauthorized company prefix in EPC: {epc}")
+                            f"Unauthorized company prefix in EPC: {epc}", line_number=line_number)
+        # Same for childEPCs
+        if 'childEPCs_detailed' in event:
+            detailed_checked = True
+            for epc_entry in event['childEPCs_detailed']:
+                epc = epc_entry.get('value', '')
+                line_number = epc_entry.get('line_number', 0)
+                
+                if not self.gs1_validator.validate_epc_format(epc):
+                    add_error(errors, 'field', 'error',
+                            f"Invalid EPC format: {epc}", line_number=line_number)
+                elif not self.gs1_validator.validate_company_prefix(epc, authorized_companies):
+                    add_error(errors, 'field', 'error',
+                            f"Unauthorized company prefix in EPC: {epc}", line_number=line_number)
+        # Fallback to the old way (no line numbers) for backward compatibility
+        epcs = event.get('epcList', []) + event.get('childEPCs', [])
+        if isinstance(epcs, list) and not detailed_checked:
+            for epc in epcs:
+                # Default event line number for backward compatibility
+                line_number = event.get('_line_number', 0)
+                if not self.gs1_validator.validate_epc_format(epc):
+                    add_error(errors, 'field', 'error',
+                            f"Invalid EPC format: {epc}", line_number=line_number)
+                elif not self.gs1_validator.validate_company_prefix(epc, authorized_companies):
+                    add_error(errors, 'field', 'error',
+                            f"Unauthorized company prefix in EPC: {epc}", line_number=line_number)
 
     def _validate_biz_step(self, event: Dict, errors: List[Dict]):
         """Validate business step"""
         biz_step = event.get('bizStep', '')
-        if biz_step:
+        if isinstance(biz_step, str) and biz_step:
             step = biz_step.split(':')[-1]
             if step not in self.VALID_BIZ_STEPS:
                 add_error(errors, 'field', 'error',
                         f"Invalid business step: {step}")
+        elif not isinstance(biz_step, str) or not biz_step:
+            # Defensive: if not a string or empty, treat as missing
+            add_error(errors, 'field', 'error', "Missing required field: bizStep")
 
     def _validate_disposition(self, event: Dict, errors: List[Dict]):
         """Validate disposition"""
         disposition = event.get('disposition', '')
-        if disposition:
+        if isinstance(disposition, str) and disposition:
             disp = disposition.split(':')[-1]
             if disp not in self.VALID_DISPOSITIONS:
                 add_error(errors, 'field', 'error',
                         f"Invalid disposition: {disp}")
+        elif not isinstance(disposition, str) or not disposition:
+            # Defensive: if not a string or empty, treat as missing
+            add_error(errors, 'field', 'error', "Missing required field: disposition")
 
     def _validate_location_identifiers(self, event: Dict, errors: List[Dict]):
         """Validate readPoint and bizLocation identifiers"""
@@ -177,8 +223,7 @@ class EPCISEventValidator:
             
             required_fields = {
                 'lotNumber': str,
-                'itemExpirationDate': str,
-                'productionDate': str
+                'itemExpirationDate': str
             }
             
             for field, field_type in required_fields.items():
@@ -210,6 +255,12 @@ class EPCISEventValidator:
 
     def _validate_shipping_event(self, event: Dict, errors: List[Dict]):
         """Validate shipping event specific requirements"""
+        # First validate that bizStep is present for shipping events
+        if not event.get('bizStep'):
+            add_error(errors, 'field', 'error',
+                    "Missing required bizStep field in shipping event")
+            return
+
         # Validate business transactions
         biz_transactions = event.get('bizTransactionList', [])
         found_types = {bt.get('type') for bt in biz_transactions if isinstance(bt, dict)}
@@ -235,5 +286,10 @@ class EPCISEventValidator:
     @staticmethod
     def _is_valid_timezone(tz: str) -> bool:
         """Validate timezone offset format"""
-        import re
-        return bool(re.match(r'^[+-]\d{2}:00$', tz))
+        # Allow offsets in 15-minute increments
+        if not re.match(r'^[+-]\d{2}:\d{2}$', tz):
+            return False
+        hours = int(tz[1:3]); minutes = int(tz[4:6])
+        return 0 <= hours <= 14 and minutes in {0, 15, 30, 45}
+    
+event_validation = EPCISEventValidator()

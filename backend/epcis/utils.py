@@ -5,6 +5,7 @@ from typing import Dict, Any, List, Optional
 
 logger = logging.getLogger("epcis.utils")
 
+
 class ErrorAggregator:
     def __init__(self):
         self.error_groups = defaultdict(list)
@@ -20,7 +21,9 @@ class ErrorAggregator:
             base_message = message
             identifier = None
             
-        key = (error_type, severity, base_message)
+        # Use line number as part of the key to prevent aggregation of errors from different lines
+        # This ensures each line's errors are reported separately
+        key = (error_type, severity, base_message, line_number)
         self.error_groups[key].append({
             'message': message,
             'identifier': identifier,
@@ -31,7 +34,7 @@ class ErrorAggregator:
         """Get the aggregated error list"""
         aggregated = []
         
-        for (error_type, severity, base_message), errors in self.error_groups.items():
+        for (error_type, severity, base_message, line_number), errors in self.error_groups.items():
             if len(errors) == 1:
                 error = errors[0]
                 aggregated.append({
@@ -54,11 +57,11 @@ class ErrorAggregator:
                     'severity': severity,
                     'message': message,
                     'count': len(errors),
-                    'line_number': errors[0]['line_number']  # Use first occurrence line number
+                    'line_number': line_number
                 })
                 
                 # Log only once for the group
-                logger.warning(f"Aggregated {len(errors)} {severity} messages of type '{error_type}': {base_message}")
+                logger.warning(f"Aggregated {len(errors)} {severity} messages of type '{error_type}' at line {line_number}: {base_message}")
         
         return aggregated
 

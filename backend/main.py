@@ -8,12 +8,12 @@ from fastapi import FastAPI, HTTPException, BackgroundTasks, File, UploadFile, F
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-from models.base import SessionLocal, engine, Base
-from models.supplier import Supplier
-from models.epcis_submission import EPCISSubmission, ValidationError, FileStatus, ValidEPCISSubmission, ErroredEPCISSubmission
-from epcis.file_watcher import EPCISFileWatcher
-from epcis.submission_service import SubmissionService
-from epcis import EPCISValidator  # Updated import path
+from .models.base import SessionLocal, engine, Base
+from .models.supplier import Supplier
+from .models.epcis_submission import EPCISSubmission, ValidationError, FileStatus, ValidEPCISSubmission, ErroredEPCISSubmission
+from .epcis.file_watcher import EPCISFileWatcher
+from .epcis.submission_service import SubmissionService
+from .epcis import EPCISValidator  # Updated import path
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -162,14 +162,43 @@ async def upload_epcis_file(
             supplier_id=supplier_id
         )
         
-        # Set the appropriate status code from the result
-        if 'status_code' in result:
-            if result['status_code'] == 409:  # Duplicate submission
-                response.status_code = status.HTTP_409_CONFLICT
-            else:
-                response.status_code = result['status_code']
+        # Handle None result
+        if result is None:
+            raise HTTPException(
+                status_code=500,
+                detail="File processing failed - no result returned from submission service"
+            )
         
-        return result
+        # Set the appropriate status code and enhance duplicate message
+        if isinstance(result, dict):
+            if 'status_code' in result:
+                response.status_code = result['status_code']
+                if result['status_code'] == 409:  # Duplicate submission
+                    # Get the existing submission details
+                    db = SessionLocal()
+                    try:
+                        existing = db.query(EPCISSubmission).filter_by(id=result.get('submission_id')).first()
+                        if existing:
+                            result['detail'] = {
+                                'message': f"This document has already been submitted",
+                                'duplicate_type': result.get('duplicate_type', 'unknown'),
+                                'original_submission': {
+                                    'id': existing.id,
+                                    'file_name': existing.file_name,
+                                    'submission_date': existing.submission_date.isoformat(),
+                                    'instance_identifier': existing.instance_identifier,
+                                    'status': existing.status
+                                }
+                            }
+                    finally:
+                        db.close()
+                return result
+            return result
+        else:
+            raise HTTPException(
+                status_code=500,
+                detail="Invalid result format returned from submission service"
+            )
         
     except HTTPException as http_error:
         raise http_error
@@ -562,6 +591,101 @@ async def get_submission_validation(
         raise HTTPException(
             status_code=500,
             detail=f"Error retrieving validation results: {str(e)}"
+        )
+
+@app.get("/epcis/submissions/{submission_id}/content")
+async def get_submission_content(
+    submission_id: str,
+    db: Session = Depends(get_db)
+) -> Dict[str, Any]:
+    """Get the raw file content for a submission"""
+    try:
+        submission = db.query(EPCISSubmission).filter_by(id=submission_id).first()
+        if not submission:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Submission {submission_id} not found"
+            )
+        
+        # Get file path and check if it exists
+        file_path = submission.file_path
+        if not os.path.exists(file_path):
+            raise HTTPException(
+                status_code=404,
+                detail=f"File not found at {file_path}"
+            )
+        
+        # Read file content
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                file_content = f.read()
+            
+            return {
+                "success": True,
+                "file_name": submission.file_name,
+                "file_content": file_content
+            }
+        except Exception as e:
+            logger.error(f"Error reading file content: {str(e)}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error reading file content: {str(e)}"
+            )
+            
+    except HTTPException as http_error:
+        raise http_error
+    except Exception as e:
+        logger.exception(f"Error getting submission content: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error retrieving submission content: {str(e)}"
+        )
+
+@app.post("/epcis/submissions/{submission_id}/update")
+async def update_submission_content(
+    submission_id: str,
+    file_content: str = Form(...),
+    db: Session = Depends(get_db)
+) -> Dict[str, Any]:
+    """Update the file content and revalidate a submission"""
+    try:
+        submission = db.query(EPCISSubmission).filter_by(id=submission_id).first()
+        if not submission:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Submission {submission_id} not found"
+            )
+        
+        # Update file content
+        file_path = submission.file_path
+        try:
+            with open(file_path, 'w', encoding='utf-8') as f:
+                f.write(file_content)
+            
+            # Create new submission with updated content
+            file_content_bytes = file_content.encode('utf-8')
+            result = await submission_service.process_submission(
+                file_content=file_content_bytes,
+                file_name=submission.file_name,
+                supplier_id=submission.supplier_id
+            )
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error updating file content: {str(e)}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error updating file content: {str(e)}"
+            )
+            
+    except HTTPException as http_error:
+        raise http_error
+    except Exception as e:
+        logger.exception(f"Error updating submission: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error updating submission: {str(e)}"
         )
 
 if __name__ == "__main__":

@@ -256,6 +256,39 @@ export const api = {
     }
   },
   
+  getSubmissionContent: async (submissionId: string) => {
+    try {
+      const response = await axios.get(`${API_URL}/epcis/submissions/${submissionId}/content`);
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching submission content:', error);
+      return {
+        success: false,
+        message: 'Failed to fetch file content',
+        file_content: ''
+      };
+    }
+  },
+  
+  updateSubmissionContent: async (submissionId: string, fileContent: string) => {
+    try {
+      const formData = new FormData();
+      formData.append('file_content', fileContent);
+      
+      const response = await axios.post(
+        `${API_URL}/epcis/submissions/${submissionId}/update`,
+        formData
+      );
+      return response.data;
+    } catch (error) {
+      console.error('Error updating submission content:', error);
+      return {
+        success: false,
+        message: 'Failed to update file content'
+      };
+    }
+  },
+  
   resolveError: async (errorId: string, resolutionNote: string, resolvedBy: string) => {
     const formData = new FormData();
     formData.append('resolution_note', resolutionNote);
