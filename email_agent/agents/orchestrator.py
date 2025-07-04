@@ -246,8 +246,8 @@ class OrchestratorAgent:
         """Generate action plan for error correction"""
         try:
             action_plan = await self.vendor_communicator.generate_action_plan(
-                state.validation_errors,
                 state.extracted_data,
+                state.validation_errors,
                 state.current_email
             )
             state.action_plan = action_plan
@@ -264,8 +264,8 @@ class OrchestratorAgent:
         try:
             await self.vendor_communicator.send_correction_email(
                 state.action_plan,
-                state.current_email,
-                state.extracted_data
+                state.extracted_data,
+                state.current_email
             )
             logger.info(f"Sent correction email to {state.current_email.sender}")
             

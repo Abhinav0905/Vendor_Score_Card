@@ -174,7 +174,7 @@ Communication should be:
     #         return self._create_empty_action_plan()
 
     # Update the generate_action_plan method to properly handle vendor email
-    async def generate_action_plan(self, vendor_info: Dict[str, Any], validation_errors: List[ValidationError], *args) -> ActionPlan:
+    async def generate_action_plan(self, vendor_info: Any, validation_errors: List[ValidationError], *args) -> ActionPlan:
         """Generate an action plan for vendor communication."""
         try:
             # Convert validation_errors to list if needed
@@ -183,25 +183,33 @@ Communication should be:
             elif not isinstance(validation_errors, list):
                 validation_errors = [validation_errors]
 
-            # Handle vendor_info conversion
-            if hasattr(vendor_info, '__dict__'):
-                vendor_info = vendor_info.__dict__
-            elif not isinstance(vendor_info, dict):
-                vendor_info = {}
+            # Handle vendor_info conversion with debugging
+            vendor_info_dict = {}
+            logger.info(f"DEBUG: vendor_info type: {type(vendor_info)}")
+            logger.info(f"DEBUG: vendor_info content: {vendor_info}")
+            
+            if hasattr(vendor_info, 'dict') and callable(getattr(vendor_info, 'dict')):
+                vendor_info_dict = vendor_info.dict()
+                logger.info(f"DEBUG: Used .dict() method, result: {vendor_info_dict}")
+            elif hasattr(vendor_info, '__dict__'):
+                vendor_info_dict = vendor_info.__dict__
+                logger.info(f"DEBUG: Used .__dict__ attribute, result: {vendor_info_dict}")
+            elif isinstance(vendor_info, dict):
+                vendor_info_dict = vendor_info
+                logger.info(f"DEBUG: Already a dict: {vendor_info_dict}")
+            else:
+                logger.warning(f"DEBUG: Could not convert vendor_info to dict")
 
             # Extract required fields with defaults and ensure email is captured
             vendor_data = {
-                'po_number': str(vendor_info.get('po_number', 'UNKNOWN')),
-                'lot_number': str(vendor_info.get('lot_number', 'UNKNOWN')),
-                'name': str(vendor_info.get('vendor_name', 'Unknown Vendor')),
-                # 'email': str(vendor_info.get('vendor_email', '') or getattr(vendor_info, 'vendor_email', '')),
-                'email': (
-                        vendor_info.get('vendor_email')
-                        or vendor_info.get('email')
-                        or ''
-                    ),
-                'file_path': str(vendor_info.get('file_path', ''))
+                'po_number': str(vendor_info_dict.get('po_number', 'UNKNOWN')),
+                'lot_number': str(vendor_info_dict.get('lot_number', 'UNKNOWN')),
+                'name': str(vendor_info_dict.get('vendor_name', 'Unknown Vendor')),
+                'email': str(vendor_info_dict.get('vendor_email', '') or vendor_info_dict.get('email', '')),
+                'file_path': str(vendor_info_dict.get('file_path', ''))
             }
+            
+            logger.info(f"DEBUG: Final vendor_data: {vendor_data}")
 
             logger.info(f"Generating action plan for vendor: {vendor_data}")
 
