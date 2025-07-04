@@ -162,40 +162,55 @@ Be thorough and accurate in your extraction."""),
         logger.info(f"Extracted LOT numbers: {lot_numbers}")
         return lot_numbers
     
+    # def _extract_vendor_info(self, text: str, sender_email: str) -> Tuple[Optional[str], str]:
+    #     """Extract vendor name from text and return it along with the sender's email."""
+    #     # Try to extract from sender header first
+    #     sender_match = re.search(r'Sender:\s*([^<\n]+)', text)
+    #     if sender_match:
+    #         sender_header = sender_match.group(1).strip()
+    #         if '@' in sender_header:
+    #             email_match = re.search(r'<(.+?)>', sender_header)
+    #             email = email_match.group(1) if email_match else sender_email
+    #             domain_match = re.search(r'@([^.>]+)', email)
+    #             if domain_match:
+    #                 vendor_name = domain_match.group(1).replace('-', ' ').title()
+    #                 return vendor_name, email
+
+    #     # Look for vendor mentions in content
+    #     vendor_patterns = [
+    #         r'Vendor[:\s]+([A-Za-z0-9\s&.-]+)',
+    #         r'Supplier[:\s]+([A-Za-z0-9\s&.-]+)',
+    #         r'Company[:\s]+([A-Za-z0-9\s&.-]+)',
+    #         r'From[:\s]+([A-Za-z0-9\s&.-]+)'
+    #     ]
+        
+    #     for pattern in vendor_patterns:
+    #         match = re.search(pattern, text, re.IGNORECASE)
+    #         if match:
+    #             vendor_name = match.group(1).strip()
+    #             if 2 < len(vendor_name) < 50:
+    #                 return vendor_name, sender_email
+        
+    #     if '@' in sender_email:
+    #         domain = sender_email.split('@')[1].split('.')[0]
+    #         return domain.replace('-', ' ').title(), sender_email
+
+    #     return None, sender_email
+
     def _extract_vendor_info(self, text: str, sender_email: str) -> Tuple[Optional[str], str]:
-        """Extract vendor name from text and return it along with the sender's email."""
-        # Try to extract from sender header first
-        sender_match = re.search(r'Sender:\s*([^<\n]+)', text)
-        if sender_match:
-            sender_header = sender_match.group(1).strip()
-            if '@' in sender_header:
-                email_match = re.search(r'<(.+?)>', sender_header)
-                email = email_match.group(1) if email_match else sender_email
-                domain_match = re.search(r'@([^.>]+)', email)
-                if domain_match:
-                    vendor_name = domain_match.group(1).replace('-', ' ').title()
-                    return vendor_name, email
-
-        # Look for vendor mentions in content
-        vendor_patterns = [
-            r'Vendor[:\s]+([A-Za-z0-9\s&.-]+)',
-            r'Supplier[:\s]+([A-Za-z0-9\s&.-]+)',
-            r'Company[:\s]+([A-Za-z0-9\s&.-]+)',
-            r'From[:\s]+([A-Za-z0-9\s&.-]+)'
-        ]
+    # Ensure we only capture the actual email address
+        email_match = re.search(r'<([^>]*)>', sender_email)
+        if email_match:
+            parsed_email = email_match.group(1)
+        else:
+            parsed_email = sender_email
         
-        for pattern in vendor_patterns:
-            match = re.search(pattern, text, re.IGNORECASE)
-            if match:
-                vendor_name = match.group(1).strip()
-                if 2 < len(vendor_name) < 50:
-                    return vendor_name, sender_email
-        
-        if '@' in sender_email:
-            domain = sender_email.split('@')[1].split('.')[0]
-            return domain.replace('-', ' ').title(), sender_email
+        domain_match = re.search(r'@([^.>]+)', parsed_email)
+        if domain_match:
+            vendor_name = domain_match.group(1).replace('-', ' ').title()
+            return vendor_name, parsed_email
 
-        return None, sender_email
+        return None, parsed_email
 
     def _extract_error_details(self, text: str) -> Optional[str]:
         """Extract error descriptions from text"""

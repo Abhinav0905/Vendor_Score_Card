@@ -99,9 +99,23 @@ Communication should be:
             # Generate email content
             email_content = self._generate_vendor_email(action_plan)
             
-            # Send email
+            # # Send email
+            # success = self.gmail_service.send_email(
+            #     to=vendor_info.get('email', ''),
+            #     subject=email_content['subject'],
+            #     body=email_content['plain_text'],
+            #     html_body=email_content['html']
+            # )
+            # pick up whichever field actually has an address
+            recipient = (
+                action_plan.vendor_email
+                or vendor_info.get('email')
+                or vendor_info.get('vendor_email')
+                or ''
+            )
+            logger.info(f"Sending action plan to: {recipient}")
             success = self.gmail_service.send_email(
-                to=vendor_info.get('email', ''),
+                to=recipient,
                 subject=email_content['subject'],
                 body=email_content['plain_text'],
                 html_body=email_content['html']
@@ -117,87 +131,134 @@ Communication should be:
         except Exception as e:
             logger.error(f"Error creating/sending action plan: {str(e)}")
             return False
-    
-    # async def generate_action_plan(self, vendor_info: Dict[str, Any], po_number: str = None, lot_number: str = None) -> ActionPlan:
-    #     """Public method to generate an action plan for orchestrator compatibility.
-        
-    #     Note: The orchestrator will handle validation_errors and file_path separately."""
-    #     try:
-    #         if not vendor_info or not isinstance(vendor_info, dict):
-    #             logger.error("Invalid vendor_info provided, returning empty action plan.")
-    #             return self._create_empty_action_plan()
 
-    #         validation_errors = vendor_info.get('validation_errors', [])
-    #         file_path = vendor_info.get('file_path', '')
-    #         po_number = po_number or vendor_info.get('po_number', 'UNKNOWN')
-    #         lot_number = lot_number or vendor_info.get('lot_number', 'UNKNOWN')
-            
+    # async def generate_action_plan(self, vendor_info: Dict[str, Any], validation_errors: List[ValidationError], *args) -> ActionPlan:
+    #     """Generate an action plan for vendor communication."""
+    #     try:
+    #         # Convert validation_errors to list if needed
+    #         if isinstance(validation_errors, tuple):
+    #             validation_errors = list(validation_errors)
+    #         elif not isinstance(validation_errors, list):
+    #             validation_errors = [validation_errors]
+    
+    #         # Handle vendor_info conversion
+    #         if hasattr(vendor_info, '__dict__'):
+    #             vendor_info = vendor_info.__dict__
+    #         elif not isinstance(vendor_info, dict):
+    #             vendor_info = {}
+    
+    #         # Extract required fields with defaults
+    #         vendor_data = {
+    #             'po_number': str(vendor_info.get('po_number', 'UNKNOWN')),
+    #             'lot_number': str(vendor_info.get('lot_number', 'UNKNOWN')),
+    #             'name': str(vendor_info.get('vendor_name', 'Unknown Vendor')),
+    #             'email': str(vendor_info.get('vendor_email', '') or vendor_info.get('email', '')),
+    #             'file_path': str(vendor_info.get('file_path', ''))
+    #         }
+    
     #         if not validation_errors:
-    #             logger.info("No validation errors found, no action plan needed.")
+    #             logger.info("No validation errors found, creating empty action plan.")
     #             return self._create_empty_action_plan()
+    
+    #         logger.info(f"Generating action plan for vendor: {vendor_data}")
             
-    #         return self._generate_action_plan(po_number, lot_number, vendor_info, validation_errors, file_path)
+    #         return self._generate_action_plan(
+    #             po_number=vendor_data['po_number'],
+    #             lot_number=vendor_data['lot_number'],
+    #             vendor_info={'name': vendor_data['name'], 'email': vendor_data['email']},
+    #             validation_errors=validation_errors,
+    #             file_path=vendor_data['file_path']
+    #         )
     #     except Exception as e:
     #         logger.error(f"Error in generate_action_plan: {str(e)}")
     #         return self._create_empty_action_plan()
 
+    # Update the generate_action_plan method to properly handle vendor email
     async def generate_action_plan(self, vendor_info: Dict[str, Any], validation_errors: List[ValidationError], *args) -> ActionPlan:
-        """Generate an action plan for vendor communication.
-        
-        Args:
-            vendor_info: Dictionary containing vendor details and PO information
-            validation_errors: List of validation errors found in EPCIS data
-            *args: Additional arguments that might be passed by the orchestrator
-        """
+        """Generate an action plan for vendor communication."""
         try:
-            if not vendor_info or not isinstance(vendor_info, dict):
-                logger.error("Invalid vendor_info provided, returning empty action plan.")
-                return self._create_empty_action_plan()
+            # Convert validation_errors to list if needed
+            if isinstance(validation_errors, tuple):
+                validation_errors = list(validation_errors)
+            elif not isinstance(validation_errors, list):
+                validation_errors = [validation_errors]
 
-            po_number = vendor_info.get('po_number', 'UNKNOWN')
-            lot_number = vendor_info.get('lot_number', 'UNKNOWN')
-            file_path = vendor_info.get('file_path', '')
-            
-            if not validation_errors:
-                logger.info("No validation errors found, creating empty action plan.")
-                return self._create_empty_action_plan()
-            
+            # Handle vendor_info conversion
+            if hasattr(vendor_info, '__dict__'):
+                vendor_info = vendor_info.__dict__
+            elif not isinstance(vendor_info, dict):
+                vendor_info = {}
+
+            # Extract required fields with defaults and ensure email is captured
+            vendor_data = {
+                'po_number': str(vendor_info.get('po_number', 'UNKNOWN')),
+                'lot_number': str(vendor_info.get('lot_number', 'UNKNOWN')),
+                'name': str(vendor_info.get('vendor_name', 'Unknown Vendor')),
+                # 'email': str(vendor_info.get('vendor_email', '') or getattr(vendor_info, 'vendor_email', '')),
+                'email': (
+                        vendor_info.get('vendor_email')
+                        or vendor_info.get('email')
+                        or ''
+                    ),
+                'file_path': str(vendor_info.get('file_path', ''))
+            }
+
+            logger.info(f"Generating action plan for vendor: {vendor_data}")
+
             return self._generate_action_plan(
-                po_number=po_number,
-                lot_number=lot_number,
-                vendor_info=vendor_info,
+                po_number=vendor_data['po_number'],
+                lot_number=vendor_data['lot_number'],
+                vendor_info={
+                    'name': vendor_data['name'], 
+                    'email': vendor_data['email']
+                },
                 validation_errors=validation_errors,
-                file_path=file_path
+                file_path=vendor_data['file_path']
             )
         except Exception as e:
             logger.error(f"Error in generate_action_plan: {str(e)}")
             return self._create_empty_action_plan()
-
+    
     async def send_correction_email(self, action_plan: ActionPlan, vendor_info: Dict[str, Any], *args) -> bool:
-        """Public method to send correction email for orchestrator compatibility.
-        
-        Note: The orchestrator may pass additional arguments that we don't need."""
+        """Send correction email to vendor."""
         try:
-            # Do not send an email if the action plan is empty or invalid (has no errors)
-            if not action_plan or not action_plan.recommendations:
-                logger.warning("Skipping email for action plan with no errors.")
+            if not action_plan or not hasattr(action_plan, 'recommendations'):
+                logger.warning("Invalid action plan, skipping email.")
                 return False
-                
-            if not vendor_info or not isinstance(vendor_info, dict) or not vendor_info.get('email'):
-                logger.error("Invalid vendor_info or missing email, cannot send email.")
+    
+            # Extract email from various possible sources
+            vendor_email = None
+            if hasattr(vendor_info, 'vendor_email'):
+                vendor_email = vendor_info.vendor_email
+            elif hasattr(vendor_info, 'email'):
+                vendor_email = vendor_info.email
+            elif isinstance(vendor_info, dict):
+                vendor_email = vendor_info.get('vendor_email') or vendor_info.get('email')
+            
+            if not vendor_email:
+                logger.error("Missing vendor email address, cannot send email.")
                 return False
-
+    
+            logger.info(f"Preparing to send email to: {vendor_email}")
+            
             email_content = self._generate_vendor_email(action_plan)
             result = await self.gmail_service.send_email(
-                to=vendor_info.get('email', ''),
+                to=vendor_email,
                 subject=email_content['subject'],
                 body=email_content['plain_text'],
                 html_body=email_content['html']
             )
+            
+            if result:
+                logger.info(f"Successfully sent correction email to {vendor_email}")
+            else:
+                logger.error(f"Failed to send correction email to {vendor_email}")
+            
             return bool(result)
         except Exception as e:
             logger.error(f"Error in send_correction_email: {str(e)}")
             return False
+
     
     def _create_empty_action_plan(self) -> ActionPlan:
         """Creates a default, empty action plan to avoid returning None."""
@@ -243,7 +304,10 @@ Communication should be:
             action_plan = ActionPlan(
                 po_number=po_number,
                 lot_number=lot_number,
-                vendor_email=vendor_info.get('email', ''),
+                vendor_email=vendor_info.get('email', '') or vendor_info.get('vendor_email', ''),
+                # vendor_email=vendor_info.get('email', '') or vendor_info.get('vendor_email', ''),  # Check both fields
+                # vendor_email=vendor_info.get('email', ''),
+                # vendor_name=vendor_info.get('name', 'Unknown Vendor'),
                 vendor_name=vendor_info.get('name', 'Unknown Vendor'),
                 errors=validation_errors,
                 recommendations=self._create_action_items(str(errors_summary)),
@@ -493,20 +557,38 @@ Best regards,
         except:
             return "normal"
     
-    def _calculate_due_date(self, validation_errors: List[ValidationError]) -> datetime:
-        """Calculate due date based on error severity"""
-        has_critical = any(e.severity == 'error' for e in validation_errors)
-        error_count = len(validation_errors)
+    # def _calculate_due_date(self, validation_errors: List[ValidationError]) -> datetime:
+    #     """Calculate due date based on error severity"""
+    #     has_critical = any(e.severity == 'error' for e in validation_errors)
+    #     error_count = len(validation_errors)
         
-        if has_critical and error_count >= 10:
-            # Urgent: 2 business days
-            return datetime.now() + timedelta(days=2)
-        elif has_critical and error_count >= 5:
-            # High: 3 business days
-            return datetime.now() + timedelta(days=3)
-        else:
-            # Normal: 5 business days
-            return datetime.now() + timedelta(days=5)
+    #     if has_critical and error_count >= 10:
+    #         # Urgent: 2 business days
+    #         return datetime.now() + timedelta(days=2)
+    #     elif has_critical and error_count >= 5:
+    #         # High: 3 business days
+    #         return datetime.now() + timedelta(days=3)
+    #     else:
+    #         # Normal: 5 business days
+    #         return datetime.now() + timedelta(days=5)
+
+    def _calculate_due_date(self, validation_errors: List[ValidationError]) -> datetime:
+        """Calculate due date based on error count"""
+        try:
+            error_count = len(validation_errors)
+            
+            if error_count >= 10:
+                # Urgent: 2 business days
+                return datetime.now() + timedelta(days=2)
+            elif error_count >= 5:
+                # High: 3 business days
+                return datetime.now() + timedelta(days=3)
+            else:
+                # Normal: 5 business days
+                return datetime.now() + timedelta(days=5)
+        except Exception as e:
+            logger.error(f"Error calculating due date: {str(e)}")
+            return datetime.now() + timedelta(days=5)  # Default to 5 days
     
     def _generate_email_content(self, content_request: str) -> str:
         """Generate email content using AI"""
