@@ -178,26 +178,33 @@ class OrchestratorAgent:
                     failed_count += 1
                     continue
 
-                # 2. Validate EPCIS
-                validated_state = await self._validate_epcis(extracted_state)
+                # 2. Lookup Database Information
+                enriched_state = await self._lookup_database_info(extracted_state)
+                if not enriched_state.extracted_data:
+                    logger.error(f"Database lookup failed for {email_data.subject}. Skipping.")
+                    failed_count += 1
+                    continue
+
+                # 3. Validate EPCIS
+                validated_state = await self._validate_epcis(enriched_state)
                 if not validated_state.validation_errors:
                     logger.info(f"No validation errors for {email_data.subject}. Marking as processed.")
                     await self._update_status(validated_state)
                     processed_count += 1
                     continue
 
-                # 3. Generate Action Plan - Handle multiple PO/LOT combinations
-                all_pos = extracted_state.extracted_data.extracted_fields.get('all_po_numbers', [])
-                all_lots = extracted_state.extracted_data.extracted_fields.get('all_lot_numbers', [])
+                # 4. Generate Action Plan - Handle multiple PO/LOT combinations
+                all_pos = enriched_state.extracted_data.extracted_fields.get('all_po_numbers', [])
+                all_lots = enriched_state.extracted_data.extracted_fields.get('all_lot_numbers', [])
                 
                 # Filter out invalid PO numbers (like 'NDING', 'SENDER')
                 valid_pos = [po for po in all_pos if po.isdigit() and len(po) >= 5]
                 valid_lots = [lot for lot in all_lots if lot.isdigit()]
                 
                 if not valid_pos:
-                    valid_pos = [extracted_state.extracted_data.po_number]
+                    valid_pos = [enriched_state.extracted_data.po_number]
                 if not valid_lots:
-                    valid_lots = [extracted_state.extracted_data.lot_number] if extracted_state.extracted_data.lot_number else ['']
+                    valid_lots = [enriched_state.extracted_data.lot_number] if enriched_state.extracted_data.lot_number else ['']
                 
                 # Create pairs of PO/LOT combinations
                 po_lot_pairs = []
@@ -209,9 +216,9 @@ class OrchestratorAgent:
                 
                 # Create a comprehensive action plan with all PO/LOT combinations
                 # Use the first PO/LOT for the main action plan, but include all pairs in the email content
-                first_po, first_lot = po_lot_pairs[0] if po_lot_pairs else (extracted_state.extracted_data.po_number, extracted_state.extracted_data.lot_number)
+                first_po, first_lot = po_lot_pairs[0] if po_lot_pairs else (enriched_state.extracted_data.po_number, enriched_state.extracted_data.lot_number)
                 
-                temp_extracted_data = extracted_state.extracted_data
+                temp_extracted_data = enriched_state.extracted_data
                 temp_extracted_data.po_number = first_po
                 temp_extracted_data.lot_number = first_lot
                 # Add all pairs to extracted_fields instead of creating new attribute
@@ -220,7 +227,7 @@ class OrchestratorAgent:
                 action_plan = await self.vendor_communicator.generate_action_plan(
                     temp_extracted_data,
                     validated_state.validation_errors,
-                    extracted_state.current_email
+                    enriched_state.current_email
                 )
                 
                 # Use the validated_state as planned_state
@@ -232,10 +239,10 @@ class OrchestratorAgent:
                     failed_count += 1
                     continue
 
-                # 4. Send Response - Send ONE email with all PO/LOT combinations
+                # 5. Send Response - Send ONE email with all PO/LOT combinations
                 await self._send_response(planned_state)
                 
-                # 5. Update Status
+                # 6. Update Status
                 await self._update_status(planned_state)
                 
                 processed_count += 1
@@ -262,6 +269,77 @@ class OrchestratorAgent:
         except Exception as e:
             logger.error(f"Failed to extract data: {str(e)}")
             state.extracted_data = None
+        
+        return state
+    
+    async def _lookup_database_info(self, state: AgentState) -> AgentState:
+        """Lookup PO/LOT information from database and enrich vendor details"""
+        try:
+            extracted_data = state.extracted_data
+            
+            # Get all PO numbers to lookup
+            all_pos = extracted_data.extracted_fields.get('all_po_numbers', [])
+            valid_pos = [po for po in all_pos if po.isdigit() and len(po) >= 5]
+            
+            if not valid_pos:
+                valid_pos = [extracted_data.po_number] if extracted_data.po_number else []
+            
+            if not valid_pos:
+                logger.warning("No valid PO numbers found for database lookup")
+                return state
+            
+            logger.info(f"Looking up database information for PO numbers: {valid_pos}")
+            
+            # Lookup information for each PO
+            enriched_vendor_info = {}
+            po_details = {}
+            
+            for po_number in valid_pos:
+                try:
+                    # Query database for PO information
+                    po_info = await self.db_service.get_po_information(po_number)
+                    
+                    if po_info:
+                        po_details[po_number] = po_info
+                        logger.info(f"Found database info for PO {po_number}: {po_info.get('vendor_name', 'Unknown')}")
+                        
+                        # Enrich vendor information with database data
+                        if not enriched_vendor_info:  # Use first PO's vendor info as primary
+                            enriched_vendor_info = {
+                                'vendor_name': po_info.get('vendor_name', extracted_data.vendor_name),
+                                'vendor_email': po_info.get('vendor_email', extracted_data.vendor_email),
+                                'vendor_contact': po_info.get('vendor_contact'),
+                                'vendor_phone': po_info.get('vendor_phone'),
+                                'vendor_address': po_info.get('vendor_address'),
+                                'primary_contact': po_info.get('primary_contact'),
+                            }
+                    else:
+                        logger.warning(f"No database information found for PO {po_number}")
+                        
+                except Exception as e:
+                    logger.error(f"Error looking up PO {po_number}: {str(e)}")
+                    continue
+            
+            # Update extracted data with enriched information
+            if enriched_vendor_info:
+                # Update vendor details
+                extracted_data.vendor_name = enriched_vendor_info.get('vendor_name', extracted_data.vendor_name)
+                extracted_data.vendor_email = enriched_vendor_info.get('vendor_email', extracted_data.vendor_email)
+                
+                # Add database information to extracted_fields
+                extracted_data.extracted_fields['database_vendor_info'] = enriched_vendor_info
+                extracted_data.extracted_fields['po_details'] = po_details
+                
+                logger.info(f"Enriched vendor information: {extracted_data.vendor_name} ({extracted_data.vendor_email})")
+            else:
+                logger.warning("No database information found for any PO numbers")
+                # Still proceed with email-extracted data
+            
+            state.extracted_data = extracted_data
+            
+        except Exception as e:
+            logger.error(f"Failed to lookup database information: {str(e)}")
+            # Don't fail the entire process, continue with email-extracted data
         
         return state
     
@@ -342,6 +420,7 @@ class OrchestratorAgent:
             
             # Process single email
             state = await self._extract_data(state)
+            state = await self._lookup_database_info(state)
             state = await self._validate_epcis(state)
             state = await self._generate_action_plan(state)
             state = await self._send_response(state)

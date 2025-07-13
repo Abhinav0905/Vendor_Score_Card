@@ -214,3 +214,146 @@ class DatabaseService:
         except Exception as e:
             logger.error(f"Database connection test failed: {str(e)}")
             return False
+        
+    async def get_po_information(self, po_number: str) -> Dict[str, Any]:
+        """
+        Lookup PO information from database including vendor details
+        
+        Args:
+            po_number: Purchase order number to lookup
+            
+        Returns:
+            Dictionary containing PO and vendor information
+        """
+        try:
+            # Ensure connection is established
+            if not hasattr(self, 'connection') or not self.connection:
+                if not self.test_connection():
+                    logger.error("Database connection not available")
+                    return None
+            
+            # Query to get PO and vendor information
+            query = """
+            SELECT 
+                po.po_number,
+                po.vendor_id,
+                po.order_date,
+                po.expected_delivery_date,
+                po.status,
+                po.total_amount,
+                v.vendor_name,
+                v.vendor_email,
+                v.vendor_phone,
+                v.vendor_address,
+                v.primary_contact,
+                v.contact_email,
+                COUNT(pi.item_id) as item_count
+            FROM purchase_orders po
+            LEFT JOIN vendors v ON po.vendor_id = v.vendor_id
+            LEFT JOIN po_items pi ON po.po_number = pi.po_number
+            WHERE po.po_number = %s
+            GROUP BY po.po_number, po.vendor_id, po.order_date, po.expected_delivery_date, 
+                     po.status, po.total_amount, v.vendor_name, v.vendor_email, 
+                     v.vendor_phone, v.vendor_address, v.primary_contact, v.contact_email
+            """
+            
+            cursor = self.connection.cursor(dictionary=True)
+            cursor.execute(query, (po_number,))
+            result = cursor.fetchone()
+            cursor.close()
+            
+            if result:
+                logger.info(f"Found PO information for {po_number}: {result.get('vendor_name', 'Unknown vendor')}")
+                return {
+                    'po_number': result.get('po_number'),
+                    'vendor_id': result.get('vendor_id'),
+                    'vendor_name': result.get('vendor_name'),
+                    'vendor_email': result.get('vendor_email') or result.get('contact_email'),
+                    'vendor_phone': result.get('vendor_phone'),
+                    'vendor_address': result.get('vendor_address'),
+                    'primary_contact': result.get('primary_contact'),
+                    'order_date': result.get('order_date'),
+                    'expected_delivery_date': result.get('expected_delivery_date'),
+                    'status': result.get('status'),
+                    'total_amount': result.get('total_amount'),
+                    'item_count': result.get('item_count', 0)
+                }
+            else:
+                logger.warning(f"No PO information found for {po_number}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"Error querying PO information for {po_number}: {str(e)}")
+            return None
+
+    async def get_lot_information(self, lot_number: str, po_number: str = None) -> Dict[str, Any]:
+        """
+        Lookup LOT information from database
+        
+        Args:
+            lot_number: Lot number to lookup
+            po_number: Optional PO number to filter results
+            
+        Returns:
+            Dictionary containing lot information
+        """
+        try:
+            # Ensure connection is established
+            if not hasattr(self, 'connection') or not self.connection:
+                if not self.test_connection():
+                    logger.error("Database connection not available")
+                    return None
+            
+            # Base query for lot information
+            query = """
+            SELECT 
+                l.lot_number,
+                l.po_number,
+                l.product_id,
+                l.quantity,
+                l.manufacture_date,
+                l.expiry_date,
+                l.batch_id,
+                l.status,
+                p.product_name,
+                p.product_code,
+                p.manufacturer
+            FROM lots l
+            LEFT JOIN products p ON l.product_id = p.product_id
+            WHERE l.lot_number = %s
+            """
+            
+            params = [lot_number]
+            
+            # Add PO filter if provided
+            if po_number:
+                query += " AND l.po_number = %s"
+                params.append(po_number)
+            
+            cursor = self.connection.cursor(dictionary=True)
+            cursor.execute(query, params)
+            result = cursor.fetchone()
+            cursor.close()
+            
+            if result:
+                logger.info(f"Found lot information for {lot_number}")
+                return {
+                    'lot_number': result.get('lot_number'),
+                    'po_number': result.get('po_number'),
+                    'product_id': result.get('product_id'),
+                    'product_name': result.get('product_name'),
+                    'product_code': result.get('product_code'),
+                    'manufacturer': result.get('manufacturer'),
+                    'quantity': result.get('quantity'),
+                    'manufacture_date': result.get('manufacture_date'),
+                    'expiry_date': result.get('expiry_date'),
+                    'batch_id': result.get('batch_id'),
+                    'status': result.get('status')
+                }
+            else:
+                logger.warning(f"No lot information found for {lot_number}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"Error querying lot information for {lot_number}: {str(e)}")
+            return None
