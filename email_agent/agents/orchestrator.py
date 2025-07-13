@@ -186,14 +186,53 @@ class OrchestratorAgent:
                     processed_count += 1
                     continue
 
-                # 3. Generate Action Plan
-                planned_state = await self._generate_action_plan(validated_state)
+                # 3. Generate Action Plan - Handle multiple PO/LOT combinations
+                all_pos = extracted_state.extracted_data.extracted_fields.get('all_po_numbers', [])
+                all_lots = extracted_state.extracted_data.extracted_fields.get('all_lot_numbers', [])
+                
+                # Filter out invalid PO numbers (like 'NDING', 'SENDER')
+                valid_pos = [po for po in all_pos if po.isdigit() and len(po) >= 5]
+                valid_lots = [lot for lot in all_lots if lot.isdigit()]
+                
+                if not valid_pos:
+                    valid_pos = [extracted_state.extracted_data.po_number]
+                if not valid_lots:
+                    valid_lots = [extracted_state.extracted_data.lot_number] if extracted_state.extracted_data.lot_number else ['']
+                
+                # Create pairs of PO/LOT combinations
+                po_lot_pairs = []
+                for i, po in enumerate(valid_pos):
+                    lot = valid_lots[i] if i < len(valid_lots) else (valid_lots[0] if valid_lots else '')
+                    po_lot_pairs.append((po, lot))
+                
+                logger.info(f"Processing {len(po_lot_pairs)} PO/LOT combinations: {po_lot_pairs}")
+                
+                # Create a comprehensive action plan with all PO/LOT combinations
+                # Use the first PO/LOT for the main action plan, but include all pairs in the email content
+                first_po, first_lot = po_lot_pairs[0] if po_lot_pairs else (extracted_state.extracted_data.po_number, extracted_state.extracted_data.lot_number)
+                
+                temp_extracted_data = extracted_state.extracted_data
+                temp_extracted_data.po_number = first_po
+                temp_extracted_data.lot_number = first_lot
+                # Add all pairs to extracted_fields instead of creating new attribute
+                temp_extracted_data.extracted_fields['all_po_lot_pairs'] = po_lot_pairs
+                
+                action_plan = await self.vendor_communicator.generate_action_plan(
+                    temp_extracted_data,
+                    validated_state.validation_errors,
+                    extracted_state.current_email
+                )
+                
+                # Use the validated_state as planned_state
+                planned_state = validated_state
+                planned_state.action_plan = action_plan
+                
                 if not planned_state.action_plan or not planned_state.action_plan.recommendations:
                     logger.error(f"Action plan generation failed or was empty for {email_data.subject}. Skipping.")
                     failed_count += 1
                     continue
 
-                # 4. Send Response
+                # 4. Send Response - Send ONE email with all PO/LOT combinations
                 await self._send_response(planned_state)
                 
                 # 5. Update Status

@@ -1,5 +1,5 @@
 import logging
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 from datetime import datetime, timedelta
 from jinja2 import Template
 
@@ -183,22 +183,17 @@ Communication should be:
             elif not isinstance(validation_errors, list):
                 validation_errors = [validation_errors]
 
-            # Handle vendor_info conversion with debugging
+            # Handle vendor_info conversion
             vendor_info_dict = {}
-            logger.info(f"DEBUG: vendor_info type: {type(vendor_info)}")
-            logger.info(f"DEBUG: vendor_info content: {vendor_info}")
             
             if hasattr(vendor_info, 'dict') and callable(getattr(vendor_info, 'dict')):
                 vendor_info_dict = vendor_info.dict()
-                logger.info(f"DEBUG: Used .dict() method, result: {vendor_info_dict}")
             elif hasattr(vendor_info, '__dict__'):
                 vendor_info_dict = vendor_info.__dict__
-                logger.info(f"DEBUG: Used .__dict__ attribute, result: {vendor_info_dict}")
             elif isinstance(vendor_info, dict):
                 vendor_info_dict = vendor_info
-                logger.info(f"DEBUG: Already a dict: {vendor_info_dict}")
             else:
-                logger.warning(f"DEBUG: Could not convert vendor_info to dict")
+                logger.warning(f"Could not convert vendor_info to dict")
 
             # Extract required fields with defaults and ensure email is captured
             vendor_data = {
@@ -206,12 +201,11 @@ Communication should be:
                 'lot_number': str(vendor_info_dict.get('lot_number', 'UNKNOWN')),
                 'name': str(vendor_info_dict.get('vendor_name', 'Unknown Vendor')),
                 'email': str(vendor_info_dict.get('vendor_email', '') or vendor_info_dict.get('email', '')),
-                'file_path': str(vendor_info_dict.get('file_path', ''))
+                'file_path': str(vendor_info_dict.get('file_path', '')),
+                'all_po_lot_pairs': vendor_info_dict.get('extracted_fields', {}).get('all_po_lot_pairs', [(vendor_info_dict.get('po_number', 'UNKNOWN'), vendor_info_dict.get('lot_number', 'UNKNOWN'))])
             }
             
-            logger.info(f"DEBUG: Final vendor_data: {vendor_data}")
-
-            logger.info(f"Generating action plan for vendor: {vendor_data}")
+            logger.info(f"Generating action plan for vendor: {vendor_data['name']}, PO/LOT pairs: {vendor_data['all_po_lot_pairs']}")
 
             return self._generate_action_plan(
                 po_number=vendor_data['po_number'],
@@ -221,7 +215,8 @@ Communication should be:
                     'email': vendor_data['email']
                 },
                 validation_errors=validation_errors,
-                file_path=vendor_data['file_path']
+                file_path=vendor_data['file_path'],
+                all_po_lot_pairs=vendor_data['all_po_lot_pairs']
             )
         except Exception as e:
             logger.error(f"Error in generate_action_plan: {str(e)}")
@@ -286,16 +281,24 @@ Communication should be:
                             lot_number: str,
                             vendor_info: Dict[str, Any],
                             validation_errors: List[ValidationError],
-                            file_path: str) -> ActionPlan:
+                            file_path: str,
+                            all_po_lot_pairs: List = None) -> ActionPlan:
         """Generate action plan using AI agent"""
         try:
             # Use the agent to generate comprehensive action plan
             errors_summary = [e.dict() for e in validation_errors]
             
+            # Format PO/LOT pairs for display
+            if all_po_lot_pairs and len(all_po_lot_pairs) > 1:
+                po_lot_display = ", ".join([f"PO #{po} (LOT #{lot})" for po, lot in all_po_lot_pairs])
+                main_subject = f"Multiple Orders: {po_lot_display}"
+            else:
+                main_subject = f"PO #{po_number} and LOT #{lot_number}"
+            
             result = self.agent.invoke({
                 "input": f"""
                 Create a comprehensive action plan for vendor {vendor_info.get('name', 'Unknown')} 
-                for PO #{po_number} and LOT #{lot_number}.
+                for {main_subject}.
                 
                 EPCIS File: {file_path}
                 Validation Errors: {errors_summary}
@@ -313,15 +316,15 @@ Communication should be:
                 po_number=po_number,
                 lot_number=lot_number,
                 vendor_email=vendor_info.get('email', '') or vendor_info.get('vendor_email', ''),
-                # vendor_email=vendor_info.get('email', '') or vendor_info.get('vendor_email', ''),  # Check both fields
-                # vendor_email=vendor_info.get('email', ''),
-                # vendor_name=vendor_info.get('name', 'Unknown Vendor'),
                 vendor_name=vendor_info.get('name', 'Unknown Vendor'),
                 errors=validation_errors,
                 recommendations=self._create_action_items(str(errors_summary)),
                 priority=self._determine_priority(str(len(validation_errors))),
                 due_date=self._calculate_due_date(validation_errors)
             )
+            
+            # Store all PO/LOT pairs as a temporary attribute for email generation (not a model field)
+            setattr(action_plan, '_all_po_lot_pairs', all_po_lot_pairs or [(po_number, lot_number)])
             
             return action_plan
             
@@ -341,24 +344,33 @@ Communication should be:
     def _generate_vendor_email(self, action_plan: ActionPlan) -> Dict[str, str]:
         """Generate email content for vendor"""
         try:
-            # Generate subject
-            subject = f"Action Required: EPCIS File Correction - PO #{action_plan.po_number}"
-            if action_plan.priority in ['high', 'urgent']:
+            # Handle multiple PO/LOT combinations in subject
+            all_pairs = getattr(action_plan, '_all_po_lot_pairs', [(action_plan.po_number, getattr(action_plan, 'lot_number', None))])
+            
+            if len(all_pairs) > 1:
+                subject = f"Action Required: EPCIS File Correction - Multiple Orders ({len(all_pairs)} POs)"
+            else:
+                subject = f"Action Required: EPCIS File Correction - PO #{action_plan.po_number}"
+                
+            priority = getattr(action_plan, 'priority', 'normal')
+            if priority in ['high', 'urgent']:
                 subject = f"URGENT - {subject}"
             
             # Generate email body using AI
+            po_lot_display = ", ".join([f"PO #{po} (LOT #{lot})" for po, lot in all_pairs])
+            
             email_input = f"""
             Generate professional email content for:
             Vendor: {action_plan.vendor_name}
-            PO: {action_plan.po_number}
-            LOT: {action_plan.lot_number}
-            Errors: {len(action_plan.errors)}
-            Priority: {action_plan.priority}
-            Due Date: {action_plan.due_date}
+            Orders: {po_lot_display}
+            Total Orders: {len(all_pairs)}
+            Recommendations: {len(action_plan.recommendations)}
+            Priority: {priority}
+            Due Date: {getattr(action_plan, 'due_date', 'ASAP')}
             
             Include:
             - Professional greeting
-            - Clear explanation of issues
+            - Clear explanation of issues for all orders
             - Specific action items
             - Timeline and next steps
             - Contact information
@@ -391,13 +403,16 @@ Communication should be:
         template = Template("""
 Dear {{ vendor_name }},
 
-We have identified {{ error_count }} validation error(s) in your EPCIS file for Purchase Order #{{ po_number }}{% if lot_number %} and LOT #{{ lot_number }}{% endif %}.
+We have identified validation error(s) in your EPCIS file for the following order(s):
 
-ERROR SUMMARY:
-{% for error in errors %}
-• {{ error.type|title }}: {{ error.message }}
-{% if error.recommendation %}  Recommendation: {{ error.recommendation }}{% endif %}
+{% if all_po_lot_pairs and all_po_lot_pairs|length > 1 %}
+AFFECTED ORDERS:
+{% for po, lot in all_po_lot_pairs %}
+• Purchase Order #{{ po }}{% if lot and lot != 'None' %} - LOT #{{ lot }}{% endif %}
 {% endfor %}
+{% else %}
+• Purchase Order #{{ po_number }}{% if lot_number and lot_number != 'None' %} - LOT #{{ lot_number }}{% endif %}
+{% endif %}
 
 ACTION REQUIRED:
 {% for recommendation in recommendations %}
@@ -407,8 +422,7 @@ ACTION REQUIRED:
 DETAILS:
 - Priority: {{ priority|title }}
 - Due Date: {{ due_date.strftime('%Y-%m-%d') if due_date else 'ASAP' }}
-- PO Number: {{ po_number }}
-{% if lot_number %}- LOT Number: {{ lot_number }}{% endif %}
+- Total Orders Affected: {{ all_po_lot_pairs|length if all_po_lot_pairs else 1 }}
 
 Please review the errors above and resubmit your corrected EPCIS file by the due date. If you need assistance or have questions, please contact our support team.
 
@@ -418,13 +432,12 @@ Best regards,
         
         return template.render(
             vendor_name=action_plan.vendor_name,
-            error_count=len(action_plan.errors),
             po_number=action_plan.po_number,
-            lot_number=action_plan.lot_number,
-            errors=action_plan.errors,
+            lot_number=getattr(action_plan, 'lot_number', None),
+            all_po_lot_pairs=getattr(action_plan, '_all_po_lot_pairs', [(action_plan.po_number, getattr(action_plan, 'lot_number', None))]),
             recommendations=action_plan.recommendations,
-            priority=action_plan.priority,
-            due_date=action_plan.due_date,
+            priority=getattr(action_plan, 'priority', 'normal'),
+            due_date=getattr(action_plan, 'due_date', None),
             signature=settings.EMAIL_SIGNATURE
         )
     
@@ -451,24 +464,24 @@ Best regards,
     <div class="header priority-{{ priority }}">
         <h2>EPCIS File Correction Required</h2>
         <p><strong>Vendor:</strong> {{ vendor_name }}</p>
+        {% if all_po_lot_pairs and all_po_lot_pairs|length > 1 %}
+        <p><strong>Affected Orders:</strong> {{ all_po_lot_pairs|length }} orders</p>
+        <ul>
+        {% for po, lot in all_po_lot_pairs %}
+            <li>PO #{{ po }}{% if lot and lot != 'None' %} - LOT #{{ lot }}{% endif %}</li>
+        {% endfor %}
+        </ul>
+        {% else %}
         <p><strong>PO Number:</strong> {{ po_number }}</p>
-        {% if lot_number %}<p><strong>LOT Number:</strong> {{ lot_number }}</p>{% endif %}
+        {% if lot_number and lot_number != 'None' %}<p><strong>LOT Number:</strong> {{ lot_number }}</p>{% endif %}
+        {% endif %}
         <p><strong>Priority:</strong> <span class="priority">{{ priority|title }}</span></p>
         <p><strong>Due Date:</strong> <span class="due-date">{{ due_date.strftime('%Y-%m-%d') if due_date else 'ASAP' }}</span></p>
     </div>
 
-    <h3>Error Summary ({{ error_count }} errors found)</h3>
+    <h3>Validation Issues Found</h3>
     <div class="error-list">
-        {% for error in errors %}
-        <div class="error-item">
-            <strong>{{ error.type|title }}:</strong> {{ error.message }}
-            {% if error.line_number %}<br><small>Line: {{ error.line_number }}</small>{% endif %}
-            {% if error.epc %}<br><small>EPC: {{ error.epc }}</small>{% endif %}
-            {% if error.recommendation %}
-            <div class="recommendation">💡 {{ error.recommendation }}</div>
-            {% endif %}
-        </div>
-        {% endfor %}
+        <p>Please review and correct the EPCIS data validation issues.</p>
     </div>
 
     <h3>Required Actions</h3>
@@ -495,13 +508,12 @@ Best regards,
         
         return template.render(
             vendor_name=action_plan.vendor_name,
-            error_count=len(action_plan.errors),
             po_number=action_plan.po_number,
-            lot_number=action_plan.lot_number,
-            errors=action_plan.errors,
+            lot_number=getattr(action_plan, 'lot_number', None),
+            all_po_lot_pairs=getattr(action_plan, '_all_po_lot_pairs', [(action_plan.po_number, getattr(action_plan, 'lot_number', None))]),
             recommendations=action_plan.recommendations,
-            priority=action_plan.priority,
-            due_date=action_plan.due_date,
+            priority=getattr(action_plan, 'priority', 'normal'),
+            due_date=getattr(action_plan, 'due_date', None),
             signature=settings.EMAIL_SIGNATURE
         )
     
